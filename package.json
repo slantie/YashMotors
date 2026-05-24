@@ -12,8 +12,19 @@
   "scripts": {
     "typecheck": "tsc --build && npm run typecheck -ws --if-present"
   },
+  "packageManager": "pnpm@10.18.3",
   "devDependencies": {
     "prettier": "^3.8.3",
     "typescript": "~5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@whiskeysockets/baileys",
+      "bcrypt",
+      "esbuild",
+      "msgpackr-extract",
+      "protobufjs",
+      "sharp"
+    ]
   }
 }

@@ -1,0 +1,13 @@
+packages:
+  - "artifacts/*"
+  - "lib/*"
+  - "lib/integrations/*"
+  - "scripts"
+
+onlyBuiltDependencies:
+  - "@whiskeysockets/baileys"
+  - bcrypt
+  - esbuild
+  - msgpackr-extract
+  - protobufjs
+  - sharp
