@@ -6,11 +6,12 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as Notifications from "expo-notifications";
 import { router, Stack, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -19,6 +20,32 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import colors from "@/constants/colors";
 import { useAuthStore } from "@/store/useAuthStore";
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
+async function registerPushToken(accessToken: string) {
+  if (Platform.OS === "web") return;
+  try {
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status !== "granted") return;
+    const tokenData = await Notifications.getExpoPushTokenAsync();
+    const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+    if (!API_BASE_URL) return;
+    await fetch(`${API_BASE_URL}/notifications/push-token`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ token: tokenData.data }),
+    });
+  } catch {
+    // Non-fatal — push token registration failure should not block the app
+  }
+}
+
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
@@ -26,12 +53,19 @@ const queryClient = new QueryClient();
 function RootLayoutNav() {
   const segments = useSegments();
   const user = useAuthStore((state) => state.user);
+  const accessToken = useAuthStore((state) => state.accessToken);
   const restoreSession = useAuthStore((state) => state.restoreSession);
   const [sessionRestored, setSessionRestored] = useState(false);
 
   useEffect(() => {
     restoreSession().finally(() => setSessionRestored(true));
   }, [restoreSession]);
+
+  useEffect(() => {
+    if (user && accessToken) {
+      registerPushToken(accessToken);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     if (!sessionRestored) return;
@@ -44,8 +78,10 @@ function RootLayoutNav() {
         router.replace("/dashboard");
       } else if (user.role === "advisor") {
         router.replace("/advisor-home");
+      } else if (user.role === "technician") {
+        router.replace("/technician-home");
       } else {
-        router.replace("/intake");
+        router.replace("/dashboard");
       }
     }
   }, [sessionRestored, segments, user]);
@@ -77,11 +113,13 @@ function RootLayoutNav() {
       <Stack.Screen name="index" />
       <Stack.Screen name="dashboard" />
       <Stack.Screen name="advisor-home" />
+      <Stack.Screen name="technician-home" />
       <Stack.Screen name="intake" />
       <Stack.Screen name="ocr-preview" />
       <Stack.Screen name="whatsapp-workflow" />
       <Stack.Screen name="image-sharing" />
       <Stack.Screen name="settings" />
+      <Stack.Screen name="management" />
       <Stack.Screen name="(cases)" />
     </Stack>
   );

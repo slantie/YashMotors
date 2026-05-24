@@ -31,6 +31,7 @@ import {
   InternalStatus,
   deleteCase,
   fetchCase,
+  notifyAdvisor,
   updateCustomerStatus,
   updateInternalStatus,
 } from "@/services/cases";
@@ -68,6 +69,20 @@ const INTERNAL_STATUSES: InternalStatus[] = [
   "cancelled",
 ];
 
+const TECHNICIAN_STATUSES: InternalStatus[] = [
+  "in_progress",
+  "awaiting_parts",
+  "denting",
+  "painting",
+  "polishing",
+  "electrical",
+  "washing",
+  "quality_check",
+  "ready",
+];
+
+const TECH_TIMELINE_EVENTS = ["intake_created", "internal_status_change", "image_uploaded"];
+
 const CUSTOMER_STATUSES: CustomerStatus[] = [
   "received",
   "in_repair",
@@ -94,7 +109,9 @@ export default function CaseDetailScreen() {
   const role = useAuthStore((state) => state.user?.role);
   const isAdmin = role === "superadmin" || role === "admin";
   const isPrivileged = isAdmin || role === "advisor";
+  const isTechnician = role === "technician";
   const canUpdate = isPrivileged;
+  const canUpdateInternal = isPrivileged || isTechnician;
   const queryClient = useQueryClient();
 
   const [internalOpen, setInternalOpen] = useState(false);
@@ -105,7 +122,7 @@ export default function CaseDetailScreen() {
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
-  const [imageFolder, setImageFolder] = useState<"intake" | "repairs">("intake");
+  const [imageFolder, setImageFolder] = useState<"intake" | "repairs">(role === "technician" ? "repairs" : "intake");
   const [viewerImage, setViewerImage] = useState<string | null>(null);
   const canEditCase = isPrivileged;
   const canUseWhatsApp = isPrivileged;
@@ -206,6 +223,34 @@ export default function CaseDetailScreen() {
     },
   });
 
+  const [submitDone, setSubmitDone] = useState(false);
+
+  const notifyMutation = useMutation({
+    mutationFn: () => notifyAdvisor(caseNumber),
+    onSuccess: () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setSubmitDone(true);
+      queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
+    },
+    onError: (err) => {
+      Alert.alert("Error", err instanceof Error ? err.message : "Failed to notify advisor.");
+    },
+  });
+
+  const handleSubmitToAdvisor = () => {
+    Alert.alert(
+      "Submit to Advisor",
+      "Notify the advisor that repair work is ready for review?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Submit",
+          onPress: () => notifyMutation.mutate(),
+        },
+      ]
+    );
+  };
+
   const deleteMutation = useMutation({
     mutationFn: () => deleteCase(caseNumber),
     onSuccess: () => {
@@ -265,275 +310,301 @@ export default function CaseDetailScreen() {
             <Text style={styles.model}>{data.carModel}</Text>
             <View style={styles.badgeRow}>
               <StatusBadge status={data.internalStatus} type="internal" />
-              <StatusBadge status={data.customerStatus} type="customer" />
+              {!isTechnician && <StatusBadge status={data.customerStatus} type="customer" />}
             </View>
           </View>
 
-          <View style={styles.card}>
-            <Info label="KM Count" value={data.kmCount} />
-            <Info label="Due Date" value={data.dueDate} />
-            <Info label="Delivery Type" value={data.deliveryType} />
-            <Info label="Customer Phone" value={data.customerPhone} />
-            <Info label="Advisor" value={`${data.advisor.name} (${data.advisor.phone})`} />
-            <Info label="Created" value={formatDate(data.createdAt)} />
-            {data.notes ? <Info label="Notes" value={data.notes} /> : null}
-            {canEditCase && (
-              <Pressable
-                onPress={() => {
-                  setEditForm({
-                    vehicleNumber: data.vehicleNumber,
-                    carModel: data.carModel,
-                    customerPhone: data.customerPhone ?? "",
-                    kmCount: data.kmCount ?? "",
-                    dueDate: data.dueDate ?? "",
-                    deliveryType: data.deliveryType ?? "",
-                    notes: data.notes ?? "",
-                  });
-                  setEditOpen(true);
-                }}
-                style={styles.editDetailsBtn}
-              >
-                <Feather name="edit-2" size={13} color={colors.primary} />
-                <Text style={styles.editDetailsText}>Edit Details</Text>
-              </Pressable>
-            )}
-          </View>
+          {isTechnician ? (
+            <>
+              {/* 1 — Update stage */}
+              <StatusSection
+                title="Internal Status"
+                status={<StatusBadge status={data.internalStatus} type="internal" />}
+                canUpdate={canUpdateInternal}
+                onUpdate={() => { setSelectedInternal(data.internalStatus); setInternalOpen(true); }}
+              />
 
-          <StatusSection
-            title="Internal Status"
-            status={<StatusBadge status={data.internalStatus} type="internal" />}
-            canUpdate={canUpdate}
-            onUpdate={() => {
-              setSelectedInternal(data.internalStatus);
-              setInternalOpen(true);
-            }}
-          />
-
-          <StatusSection
-            title="Customer Status"
-            status={<StatusBadge status={data.customerStatus} type="customer" />}
-            canUpdate={canUpdate}
-            onUpdate={() => {
-              setSelectedCustomer(data.customerStatus);
-              setCustomerOpen(true);
-            }}
-          />
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Timeline</Text>
-            {events.length === 0 ? (
-              <Text style={styles.emptyText}>No events yet.</Text>
-            ) : (
-              events.map((event) => (
-                <View key={event.id} style={styles.eventRow}>
-                  <View style={styles.eventDot} />
-                  <View style={styles.eventBody}>
-                    <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
-                    {event.message ? <Text style={styles.eventMsg}>{event.message}</Text> : null}
-                    <Text style={styles.eventTime}>{formatDate(event.createdAt)}</Text>
-                  </View>
+              {/* 2 — Photos */}
+              <View style={styles.card}>
+                <View style={styles.tabRow}>
+                  <Pressable
+                    onPress={() => setImageFolder("intake")}
+                    style={[styles.tab, imageFolder === "intake" && styles.tabActive]}
+                  >
+                    <Text style={[styles.tabText, imageFolder === "intake" && styles.tabTextActive]}>
+                      Intake Photos
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setImageFolder("repairs")}
+                    style={[styles.tab, imageFolder === "repairs" && styles.tabActive]}
+                  >
+                    <Text style={[styles.tabText, imageFolder === "repairs" && styles.tabTextActive]}>
+                      Repair Photos
+                    </Text>
+                  </Pressable>
                 </View>
-              ))
-            )}
-          </View>
-
-          <AddEventForm
-            caseNumber={caseNumber}
-            role={role}
-            onSuccess={() => {}}
-          />
-
-          <View style={styles.card}>
-            <View style={styles.tabRow}>
-              <Pressable
-                onPress={() => setImageFolder("intake")}
-                style={[
-                  styles.tab,
-                  imageFolder === "intake" && styles.tabActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    imageFolder === "intake" && styles.tabTextActive,
-                  ]}
-                >
-                  Intake Photos
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setImageFolder("repairs")}
-                style={[
-                  styles.tab,
-                  imageFolder === "repairs" && styles.tabActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    imageFolder === "repairs" && styles.tabTextActive,
-                  ]}
-                >
-                  Repair Photos
-                </Text>
-              </Pressable>
-            </View>
-            {imageFolder === "intake" ? (
-              <ImagesGrid
-                caseNumber={caseNumber}
-                folder="intake"
-                role={role}
-                onImageView={(url) => setViewerImage(url)}
-              />
-            ) : (
-              <ImagesGrid
-                caseNumber={caseNumber}
-                folder="repairs"
-                role={role}
-                onImageView={(url) => setViewerImage(url)}
-              />
-            )}
-          </View>
-
-          {isAdmin && (
-            <Pressable
-              onPress={handleDeleteCase}
-              disabled={deleteMutation.isPending}
-              style={[styles.deleteCaseBtn, deleteMutation.isPending && styles.disabled]}
-            >
-              {deleteMutation.isPending ? (
-                <ActivityIndicator color={colors.destructive} size="small" />
-              ) : (
-                <>
-                  <Feather name="trash-2" size={15} color={colors.destructive} />
-                  <Text style={styles.deleteCaseBtnText}>Delete Case</Text>
-                </>
-              )}
-            </Pressable>
-          )}
-
-          {canUseWhatsApp && data && (
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>WhatsApp Group</Text>
-              {waStatusQuery.isLoading && !waStatusQuery.data ? (
-                <ActivityIndicator
-                  color={colors.primary}
-                  style={styles.waLoading}
+                <ImagesGrid
+                  caseNumber={caseNumber}
+                  folder={imageFolder}
+                  role={role}
+                  onImageView={(url) => setViewerImage(url)}
                 />
-              ) : waStatusQuery.data?.whatsappStatus === "created" ? (
-                <View>
-                  <View style={styles.waSuccessRow}>
-                    <Feather
-                      name="check-circle"
-                      size={16}
-                      color={colors.success}
-                    />
-                    <Text style={styles.waSuccessText}>Group Created</Text>
-                  </View>
-                  {waStatusQuery.data.whatsappInviteLink ? (
-                    <View style={styles.waInviteRow}>
-                      <Text style={styles.waInviteLabel}>Invite Link</Text>
-                      <View style={styles.waInviteLinkRow}>
-                        <Text
-                          style={styles.waInviteLink}
-                          numberOfLines={1}
-                        >
-                          {waStatusQuery.data.whatsappInviteLink}
-                        </Text>
-                        <Pressable
-                          onPress={() => {
-                            Clipboard.setStringAsync(
-                              waStatusQuery.data!.whatsappInviteLink!
-                            );
-                            Alert.alert("Copied");
-                          }}
-                          style={styles.waCopyBtn}
-                        >
-                          <Feather
-                            name="copy"
-                            size={14}
-                            color={colors.primary}
-                          />
-                        </Pressable>
+              </View>
+
+              {/* 3 — Case info */}
+              <View style={styles.card}>
+                <Info label="KM Count" value={data.kmCount} />
+                <Info label="Due Date" value={data.dueDate} />
+                <Info label="Advisor" value={data.advisor.name} />
+                <Info label="Created" value={formatDate(data.createdAt)} />
+                {data.notes ? <Info label="Notes" value={data.notes} /> : null}
+              </View>
+
+              {/* 4 — Timeline */}
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Timeline</Text>
+                {events.filter((e) => TECH_TIMELINE_EVENTS.includes(e.eventType)).length === 0 ? (
+                  <Text style={styles.emptyText}>No events yet.</Text>
+                ) : (
+                  events
+                    .filter((e) => TECH_TIMELINE_EVENTS.includes(e.eventType))
+                    .map((event) => (
+                      <View key={event.id} style={styles.eventRow}>
+                        <View style={styles.eventDot} />
+                        <View style={styles.eventBody}>
+                          <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
+                          {event.message ? <Text style={styles.eventMsg}>{event.message}</Text> : null}
+                          <Text style={styles.eventTime}>{formatDate(event.createdAt)}</Text>
+                        </View>
+                      </View>
+                    ))
+                )}
+              </View>
+
+              {/* 5 — Final submit */}
+              <Pressable
+                onPress={handleSubmitToAdvisor}
+                disabled={notifyMutation.isPending || submitDone}
+                style={[styles.submitBtn, (notifyMutation.isPending || submitDone) && styles.disabled]}
+              >
+                {notifyMutation.isPending ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : submitDone ? (
+                  <>
+                    <Feather name="check" size={15} color="#fff" />
+                    <Text style={styles.submitBtnText}>Submitted to Advisor</Text>
+                  </>
+                ) : (
+                  <>
+                    <Feather name="send" size={15} color="#fff" />
+                    <Text style={styles.submitBtnText}>Submit to Advisor</Text>
+                  </>
+                )}
+              </Pressable>
+            </>
+          ) : (
+            <>
+              {/* Info */}
+              <View style={styles.card}>
+                <Info label="KM Count" value={data.kmCount} />
+                <Info label="Due Date" value={data.dueDate} />
+                <Info label="Delivery Type" value={data.deliveryType} />
+                <Info label="Customer Phone" value={data.customerPhone} />
+                <Info label="Advisor" value={`${data.advisor.name} (${data.advisor.phone})`} />
+                <Info label="Created" value={formatDate(data.createdAt)} />
+                {data.notes ? <Info label="Notes" value={data.notes} /> : null}
+                {canEditCase && (
+                  <Pressable
+                    onPress={() => {
+                      setEditForm({
+                        vehicleNumber: data.vehicleNumber,
+                        carModel: data.carModel,
+                        customerPhone: data.customerPhone ?? "",
+                        kmCount: data.kmCount ?? "",
+                        dueDate: data.dueDate ?? "",
+                        deliveryType: data.deliveryType ?? "",
+                        notes: data.notes ?? "",
+                      });
+                      setEditOpen(true);
+                    }}
+                    style={styles.editDetailsBtn}
+                  >
+                    <Feather name="edit-2" size={13} color={colors.primary} />
+                    <Text style={styles.editDetailsText}>Edit Details</Text>
+                  </Pressable>
+                )}
+              </View>
+
+              {/* Internal status */}
+              <StatusSection
+                title="Internal Status"
+                status={<StatusBadge status={data.internalStatus} type="internal" />}
+                canUpdate={canUpdateInternal}
+                onUpdate={() => { setSelectedInternal(data.internalStatus); setInternalOpen(true); }}
+              />
+
+              {/* Customer status */}
+              <StatusSection
+                title="Customer Status"
+                status={<StatusBadge status={data.customerStatus} type="customer" />}
+                canUpdate={canUpdate}
+                onUpdate={() => { setSelectedCustomer(data.customerStatus); setCustomerOpen(true); }}
+              />
+
+              {/* Timeline */}
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Timeline</Text>
+                {events.length === 0 ? (
+                  <Text style={styles.emptyText}>No events yet.</Text>
+                ) : (
+                  events.map((event) => (
+                    <View key={event.id} style={styles.eventRow}>
+                      <View style={styles.eventDot} />
+                      <View style={styles.eventBody}>
+                        <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
+                        {event.message ? <Text style={styles.eventMsg}>{event.message}</Text> : null}
+                        <Text style={styles.eventTime}>{formatDate(event.createdAt)}</Text>
                       </View>
                     </View>
-                  ) : null}
+                  ))
+                )}
+              </View>
+
+              <AddEventForm caseNumber={caseNumber} role={role} onSuccess={() => {}} />
+
+              {/* Photos */}
+              <View style={styles.card}>
+                <View style={styles.tabRow}>
                   <Pressable
-                    onPress={() => setWaSendOpen(true)}
-                    style={styles.waSendBtn}
+                    onPress={() => setImageFolder("intake")}
+                    style={[styles.tab, imageFolder === "intake" && styles.tabActive]}
                   >
-                    <Feather name="send" size={14} color="#fff" />
-                    <Text style={styles.waSendText}>Send Update</Text>
-                  </Pressable>
-                </View>
-              ) : waStatusQuery.data?.whatsappStatus === "failed" ? (
-                <View>
-                  <View style={styles.waFailRow}>
-                    <Feather
-                      name="alert-circle"
-                      size={16}
-                      color={colors.destructive}
-                    />
-                    <Text style={styles.waFailText}>
-                      Group creation failed
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => {
-                      setWaInitiated(true);
-                      createGroupMutation.mutate({
-                        phone: data.advisor.phone,
-                        msg: formatCaseMessage(data),
-                      });
-                    }}
-                    style={styles.waRetryBtn}
-                  >
-                    <Text style={styles.waRetryText}>Retry</Text>
-                  </Pressable>
-                </View>
-              ) : waStatusQuery.data?.whatsappStatus === "manual_required" ? (
-                <View style={styles.waFailRow}>
-                  <Feather
-                    name="help-circle"
-                    size={16}
-                    color="#B54708"
-                  />
-                  <Text style={styles.waManualText}>
-                    Manual action required
-                  </Text>
-                </View>
-              ) : waInitiated ||
-                waStatusQuery.data?.whatsappStatus === "pending" ||
-                waStatusQuery.data?.whatsappStatus === "retrying" ? (
-                <View style={styles.waCreatingRow}>
-                  <ActivityIndicator
-                    color={colors.primary}
-                    size="small"
-                  />
-                  <Text style={styles.waCreatingText}>
-                    Creating group...
-                  </Text>
-                </View>
-              ) : (
-                <View>
-                  <Text style={styles.waNoGroupText}>
-                    No WhatsApp group created yet
-                  </Text>
-                  <Pressable
-                    onPress={() => {
-                      setWaInitialMsg(data ? formatCaseMessage(data) : "");
-                      setWaCreateOpen(true);
-                    }}
-                    style={styles.waCreateBtn}
-                  >
-                    <Feather name="users" size={14} color="#fff" />
-                    <Text style={styles.waCreateText}>
-                      Create WhatsApp Group
+                    <Text style={[styles.tabText, imageFolder === "intake" && styles.tabTextActive]}>
+                      Intake Photos
                     </Text>
                   </Pressable>
+                  <Pressable
+                    onPress={() => setImageFolder("repairs")}
+                    style={[styles.tab, imageFolder === "repairs" && styles.tabActive]}
+                  >
+                    <Text style={[styles.tabText, imageFolder === "repairs" && styles.tabTextActive]}>
+                      Repair Photos
+                    </Text>
+                  </Pressable>
+                </View>
+                {imageFolder === "intake" ? (
+                  <ImagesGrid
+                    caseNumber={caseNumber}
+                    folder="intake"
+                    role={role}
+                    onImageView={(url) => setViewerImage(url)}
+                  />
+                ) : (
+                  <ImagesGrid
+                    caseNumber={caseNumber}
+                    folder="repairs"
+                    role={role}
+                    onImageView={(url) => setViewerImage(url)}
+                  />
+                )}
+              </View>
+
+              {isAdmin && (
+                <Pressable
+                  onPress={handleDeleteCase}
+                  disabled={deleteMutation.isPending}
+                  style={[styles.deleteCaseBtn, deleteMutation.isPending && styles.disabled]}
+                >
+                  {deleteMutation.isPending ? (
+                    <ActivityIndicator color={colors.destructive} size="small" />
+                  ) : (
+                    <>
+                      <Feather name="trash-2" size={15} color={colors.destructive} />
+                      <Text style={styles.deleteCaseBtnText}>Delete Case</Text>
+                    </>
+                  )}
+                </Pressable>
+              )}
+
+              {canUseWhatsApp && data && (
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>WhatsApp Group</Text>
+                  {waStatusQuery.isLoading && !waStatusQuery.data ? (
+                    <ActivityIndicator color={colors.primary} style={styles.waLoading} />
+                  ) : waStatusQuery.data?.whatsappStatus === "created" ? (
+                    <View>
+                      <View style={styles.waSuccessRow}>
+                        <Feather name="check-circle" size={16} color={colors.success} />
+                        <Text style={styles.waSuccessText}>Group Created</Text>
+                      </View>
+                      {waStatusQuery.data.whatsappInviteLink ? (
+                        <View style={styles.waInviteRow}>
+                          <Text style={styles.waInviteLabel}>Invite Link</Text>
+                          <View style={styles.waInviteLinkRow}>
+                            <Text style={styles.waInviteLink} numberOfLines={1}>
+                              {waStatusQuery.data.whatsappInviteLink}
+                            </Text>
+                            <Pressable
+                              onPress={() => {
+                                Clipboard.setStringAsync(waStatusQuery.data!.whatsappInviteLink!);
+                                Alert.alert("Copied");
+                              }}
+                              style={styles.waCopyBtn}
+                            >
+                              <Feather name="copy" size={14} color={colors.primary} />
+                            </Pressable>
+                          </View>
+                        </View>
+                      ) : null}
+                      <Pressable onPress={() => setWaSendOpen(true)} style={styles.waSendBtn}>
+                        <Feather name="send" size={14} color="#fff" />
+                        <Text style={styles.waSendText}>Send Update</Text>
+                      </Pressable>
+                    </View>
+                  ) : waStatusQuery.data?.whatsappStatus === "failed" ? (
+                    <View>
+                      <View style={styles.waFailRow}>
+                        <Feather name="alert-circle" size={16} color={colors.destructive} />
+                        <Text style={styles.waFailText}>Group creation failed</Text>
+                      </View>
+                      <Pressable
+                        onPress={() => {
+                          setWaInitiated(true);
+                          createGroupMutation.mutate({ phone: data.advisor.phone, msg: formatCaseMessage(data) });
+                        }}
+                        style={styles.waRetryBtn}
+                      >
+                        <Text style={styles.waRetryText}>Retry</Text>
+                      </Pressable>
+                    </View>
+                  ) : waStatusQuery.data?.whatsappStatus === "manual_required" ? (
+                    <View style={styles.waFailRow}>
+                      <Feather name="help-circle" size={16} color="#B54708" />
+                      <Text style={styles.waManualText}>Manual action required</Text>
+                    </View>
+                  ) : waInitiated ||
+                    waStatusQuery.data?.whatsappStatus === "pending" ||
+                    waStatusQuery.data?.whatsappStatus === "retrying" ? (
+                    <View style={styles.waCreatingRow}>
+                      <ActivityIndicator color={colors.primary} size="small" />
+                      <Text style={styles.waCreatingText}>Creating group...</Text>
+                    </View>
+                  ) : (
+                    <View>
+                      <Text style={styles.waNoGroupText}>No WhatsApp group created yet</Text>
+                      <Pressable
+                        onPress={() => { setWaInitialMsg(data ? formatCaseMessage(data) : ""); setWaCreateOpen(true); }}
+                        style={styles.waCreateBtn}
+                      >
+                        <Feather name="users" size={14} color="#fff" />
+                        <Text style={styles.waCreateText}>Create WhatsApp Group</Text>
+                      </Pressable>
+                    </View>
+                  )}
                 </View>
               )}
-            </View>
+            </>
           )}
         </ScrollView>
       )}
@@ -541,7 +612,7 @@ export default function CaseDetailScreen() {
       <StatusPickerModal
         visible={internalOpen}
         title="Update Internal Status"
-        statuses={INTERNAL_STATUSES}
+        statuses={isTechnician ? TECHNICIAN_STATUSES : INTERNAL_STATUSES}
         selected={selectedInternal}
         onSelect={(status) => setSelectedInternal(status as InternalStatus)}
         note={note}
@@ -1503,6 +1574,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.inputBg,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  submitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 14,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+  },
+  submitBtnText: {
+    fontSize: 14,
+    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600" as const,
+    color: "#fff",
   },
   editFormScroll: {
     maxHeight: 420,

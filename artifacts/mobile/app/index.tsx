@@ -11,5 +11,8 @@ export default function Index() {
   if (user.role === "advisor") {
     return <Redirect href="/advisor-home" />;
   }
-  return <Redirect href="/intake" />;
+  if (user.role === "technician") {
+    return <Redirect href="/technician-home" />;
+  }
+  return <Redirect href="/dashboard" />;
 }

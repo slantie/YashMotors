@@ -19,7 +19,9 @@ import { AuthUser, useAuthStore } from "@/store/useAuthStore";
 
 function routeForUser(user: AuthUser): string {
   if (user.role === "superadmin" || user.role === "admin") return "/dashboard";
-  return "/intake";
+  if (user.role === "advisor") return "/advisor-home";
+  if (user.role === "technician") return "/technician-home";
+  return "/dashboard";
 }
 
 export default function LoginScreen() {

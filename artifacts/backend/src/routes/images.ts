@@ -25,6 +25,7 @@ async function findCase(caseNumber: string) {
 function canAccessCase(role: string, advisorId: number, userId: number): boolean {
   if (role === "superadmin" || role === "admin") return true;
   if (role === "advisor") return advisorId === userId;
+  if (role === "technician") return true;
   return false;
 }
 

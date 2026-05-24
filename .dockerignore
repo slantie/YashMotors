@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+**/.cxx
+**/build
+**/dist
+**/.expo
+artifacts/mobile
+artifacts/api-server/auth_info_baileys
+.git
+.gitignore
+*.log
+.env
+**/.env
+nginx/ssl

@@ -45,7 +45,7 @@ export const useIntakeStore = create<IntakeStore>()(
   persist(
     (set) => ({
       formData: defaultFormData,
-      vehicleNumber: "GJ01AB1234",
+      vehicleNumber: "",
       selectedSharingImages: [],
       hydrated: false,
       setFormData: (data) =>
@@ -57,7 +57,7 @@ export const useIntakeStore = create<IntakeStore>()(
       reset: () =>
         set({
           formData: defaultFormData,
-          vehicleNumber: "GJ01AB1234",
+          vehicleNumber: "",
           selectedSharingImages: [],
         }),
     }),

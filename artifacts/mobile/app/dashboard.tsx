@@ -140,6 +140,13 @@ export default function DashboardScreen() {
             <Text style={styles.actionText}>All Cases</Text>
           </Pressable>
           <Pressable
+            onPress={() => router.push("/management")}
+            style={styles.actionBtn}
+          >
+            <Feather name="bar-chart-2" size={18} color={colors.primary} />
+            <Text style={styles.actionText}>Management</Text>
+          </Pressable>
+          <Pressable
             onPress={() => router.push("/settings")}
             style={styles.actionBtn}
           >

@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { eq, desc, or, ne, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { cases, users, caseEvents, caseEventImages } from "../db/schema.js";
+import { cases, users, caseEvents, caseEventImages, notifications } from "../db/schema.js";
 import { generateCaseNumber } from "../lib/caseNumber.js";
 import { deleteS3Object } from "../lib/s3.js";
 import {
@@ -80,6 +80,8 @@ function canAccessCase(
   return false; // technician cannot mutate cases
 }
 
+const caseListWithAdvisor = { ...caseListSelect, advisorName: users.name };
+
 // ── GET /cases ─────────────────────────────────────────────────────────────────
 
 router.get("/", async (req: Request, res: Response): Promise<void> => {
@@ -87,8 +89,9 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
 
   if (role === "superadmin" || role === "admin") {
     const result = await db
-      .select(caseListSelect)
+      .select(caseListWithAdvisor)
       .from(cases)
+      .leftJoin(users, eq(cases.advisorId, users.id))
       .orderBy(desc(cases.createdAt));
     res.json(result);
     return;
@@ -96,8 +99,9 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
 
   if (role === "advisor") {
     const result = await db
-      .select(caseListSelect)
+      .select(caseListWithAdvisor)
       .from(cases)
+      .leftJoin(users, eq(cases.advisorId, users.id))
       .where(eq(cases.advisorId, userId))
       .orderBy(desc(cases.createdAt));
     res.json(result);
@@ -105,10 +109,10 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
   }
 
   if (role === "technician") {
-    // All open cases (not delivered/cancelled)
     const result = await db
-      .select(caseListSelect)
+      .select(caseListWithAdvisor)
       .from(cases)
+      .leftJoin(users, eq(cases.advisorId, users.id))
       .where(
         and(
           ne(cases.internalStatus, "delivered"),
@@ -197,7 +201,7 @@ router.put(
 
     const c = await findCase(String(req.params.caseNumber));
     if (!c) { res.status(404).json({ error: "Case not found" }); return; }
-    if (!canAccessCase(role, c.advisorId, userId)) {
+    if (!canAccessCase(role, c.advisorId, userId) && role !== "technician") {
       res.status(403).json({ error: "Forbidden" }); return;
     }
 
@@ -277,6 +281,76 @@ router.delete(
     void Promise.allSettled(images.map((img) => deleteS3Object(img.s3Key)));
 
     res.status(204).end();
+  }
+);
+
+// ── POST /cases/:caseNumber/notify-advisor ─────────────────────────────────────
+// Technician explicitly submits completed repair work for advisor review.
+// Inserts a timeline event + notification, then fires push if token exists.
+
+router.post(
+  "/:caseNumber/notify-advisor",
+  async (req: Request, res: Response): Promise<void> => {
+    const { role, userId } = (req as AuthRequest).user;
+    if (role !== "technician") {
+      res.status(403).json({ error: "Only technicians can submit for advisor review" });
+      return;
+    }
+
+    const c = await findCase(String(req.params.caseNumber));
+    if (!c) { res.status(404).json({ error: "Case not found" }); return; }
+
+    // Timeline event so advisor sees it in the case history
+    const [event] = await db
+      .insert(caseEvents)
+      .values({
+        caseId: c.id,
+        eventType: "technician_update",
+        createdBy: userId,
+        message: "Repairs submitted for advisor review",
+      })
+      .returning();
+
+    const title = "Repairs Ready for Review";
+    const body = `${c.caseNumber} · ${c.vehicleNumber} — technician has submitted repair work`;
+
+    const [notif] = await db
+      .insert(notifications)
+      .values({ userId: c.advisorId, caseId: c.id, eventId: event.id, title, body })
+      .returning({ id: notifications.id });
+
+    res.json({ success: true, notificationId: notif.id });
+
+    // Fire push token lookup + send after response is flushed
+    (async () => {
+      try {
+        const [advisor] = await db
+          .select({ pushToken: users.pushToken })
+          .from(users)
+          .where(eq(users.id, c.advisorId))
+          .limit(1);
+
+        if (!advisor?.pushToken) return;
+
+        const r = await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify([{
+            to: advisor.pushToken,
+            title,
+            body,
+            data: { caseNumber: c.caseNumber },
+            sound: "default",
+          }]),
+        });
+        const d = await r.json().catch(() => null) as { data?: Array<{ status?: string }> } | null;
+        if (d?.data?.[0]?.status === "ok") {
+          await db.update(notifications).set({ pushSent: true }).where(eq(notifications.id, notif.id));
+        }
+      } catch (err) {
+        console.error("[push] notify-advisor failed:", err);
+      }
+    })();
   }
 );
 

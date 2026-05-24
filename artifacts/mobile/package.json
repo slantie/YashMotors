@@ -60,14 +60,13 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
-    "@react-native-ml-kit/text-recognition": "^2.0.0",
     "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.34",
     "expo-camera": "~17.0.10",
     "expo-clipboard": "^8.0.8",
-    "expo-dev-client": "~6.0.21",
     "expo-file-system": "^56.0.7",
     "expo-intent-launcher": "^56.0.4",
+    "expo-notifications": "~0.29.14",
     "expo-secure-store": "~15.0.8",
     "expo-sharing": "^14.0.8",
     "react": "19.1.0",

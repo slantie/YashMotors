@@ -1,6 +1,5 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import TextRecognition, { TextRecognitionScript } from "@react-native-ml-kit/text-recognition";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -64,19 +63,23 @@ export default function OcrPreviewScreen() {
 
       if (primaryUri) {
         try {
-          const result = await TextRecognition.recognize(primaryUri, TextRecognitionScript.LATIN);
-          console.log("[OCR] Raw output:", result.text);
-          console.log("[OCR] Blocks:", result.blocks.map((b) => b.text));
-          const cleaned = result.text.toUpperCase().replace(/[\s\-]/g, "");
-          const match = cleaned.match(/[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}/);
-          if (match) {
-            extracted = match[0];
-            console.log("[OCR] Matched plate:", extracted);
+          const form = new FormData();
+          form.append("image", { uri: primaryUri, type: "image/jpeg", name: "plate.jpg" } as any);
+          const res = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/ocr`, {
+            method: "POST",
+            body: form,
+          });
+          if (res.ok) {
+            const json = await res.json();
+            console.log("[OCR] Raw output:", json.raw);
+            extracted = json.plate || "";
+            if (extracted) console.log("[OCR] Matched plate:", extracted);
+            else console.log("[OCR] No plate found. Raw:", json.raw);
           } else {
-            console.log("[OCR] No plate pattern found in:", cleaned);
+            console.log("[OCR] Server error:", res.status);
           }
         } catch (e) {
-          console.log("[OCR] Recognition failed:", e);
+          console.log("[OCR] Request failed:", e);
         }
       }
 
@@ -88,7 +91,7 @@ export default function OcrPreviewScreen() {
       loopAnim.stop();
       setScanning(false);
       if (extracted) {
-        setVn(formatPlate(extracted));
+        setVn(extracted);
         setOcrDetected(true);
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -107,7 +110,7 @@ export default function OcrPreviewScreen() {
   const createMutation = useMutation({
     mutationFn: async () => {
       setUploadStatus({ phase: "creating", done: 0, total: 0 });
-      const trimmed = vn.trim().toUpperCase();
+      const trimmed = vn.trim().toUpperCase().replace(/\s/g, "");
       setVehicleNumber(trimmed);
 
       const created = await createCase({
@@ -184,10 +187,6 @@ export default function OcrPreviewScreen() {
     },
   });
 
-  function formatPlate(raw: string): string {
-  const m = raw.match(/^([A-Z]{2})(\d{1,2})([A-Z]{1,3})(\d{4})$/);
-  return m ? `${m[1]} ${m[2]} ${m[3]} ${m[4]}` : raw;
-}
 
 const scanY = scanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 144] });
 
@@ -231,11 +230,11 @@ const scanY = scanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 144] }
             <TextInput
               style={styles.vnInput}
               value={vn}
-              onChangeText={(t) => setVn(t.toUpperCase())}
+              onChangeText={(t) => setVn(t.toUpperCase().replace(/\s/g, ""))}
               selectionColor={colors.primary}
               autoCapitalize="characters"
               autoCorrect={false}
-              maxLength={12}
+              maxLength={11}
               placeholder="Vehicle number..."
               placeholderTextColor={colors.textMuted}
               editable={!createMutation.isPending}

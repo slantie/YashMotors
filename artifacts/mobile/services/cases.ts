@@ -37,6 +37,7 @@ export interface CaseListItem {
   internalStatus: InternalStatus;
   customerStatus: CustomerStatus;
   advisorId: number;
+  advisorName?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -149,4 +150,8 @@ export async function updateCustomerStatus(
 
 export async function deleteCase(caseNumber: string): Promise<void> {
   await request(`/cases/${encodeURIComponent(caseNumber)}`, { method: "DELETE" });
+}
+
+export async function notifyAdvisor(caseNumber: string): Promise<void> {
+  await request(`/cases/${encodeURIComponent(caseNumber)}/notify-advisor`, { method: "POST" });
 }

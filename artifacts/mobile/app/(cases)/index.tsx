@@ -45,17 +45,29 @@ export default function CasesScreen() {
   const [form, setForm] = useState<CreateCaseBody>(initialForm);
   const [error, setError] = useState("");
 
+  const [search, setSearch] = useState("");
+
   const casesQuery = useQuery({
     queryKey: ["cases"],
     queryFn: fetchCases,
   });
+
   const visibleCases = (() => {
-    const all = casesQuery.data ?? [];
+    let all = casesQuery.data ?? [];
     if (role === "technician") {
-      return all.filter((item) => !["delivered", "cancelled"].includes(item.internalStatus));
+      all = all.filter((item) => !["delivered", "cancelled"].includes(item.internalStatus));
+    } else if (role === "advisor" && userId != null) {
+      all = all.filter((item) => Number(item.advisorId) === Number(userId));
     }
-    if (role === "advisor" && userId != null) {
-      return all.filter((item) => Number(item.advisorId) === Number(userId));
+    if (search.trim()) {
+      const q = search.trim().toUpperCase();
+      all = all.filter(
+        (item) =>
+          item.vehicleNumber.toUpperCase().includes(q) ||
+          (item.advisorName ?? "").toUpperCase().includes(q) ||
+          item.carModel.toUpperCase().includes(q) ||
+          (item.customerName ?? "").toUpperCase().includes(q)
+      );
     }
     return all;
   })();
@@ -99,6 +111,27 @@ export default function CasesScreen() {
           ) : null
         }
       />
+
+      <View style={styles.searchRow}>
+        <Feather name="search" size={15} color={colors.textMuted} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search plate, advisor, model..."
+          placeholderTextColor={colors.textMuted}
+          selectionColor={colors.primary}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          returnKeyType="search"
+          clearButtonMode="while-editing"
+        />
+        {search.length > 0 && (
+          <Pressable onPress={() => setSearch("")} hitSlop={8}>
+            <Feather name="x" size={15} color={colors.textMuted} />
+          </Pressable>
+        )}
+      </View>
 
       {casesQuery.isLoading ? (
         <View style={styles.center}>
@@ -240,6 +273,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primaryFaint,
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 10,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBg,
+    gap: 8,
+  },
+  searchIcon: { flexShrink: 0 },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: colors.text,
+    paddingVertical: 0,
   },
   center: {
     flex: 1,
