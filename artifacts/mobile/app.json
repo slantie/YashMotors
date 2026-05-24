@@ -7,8 +7,8 @@
     "icon": "./assets/images/icon.png",
     "scheme": "yashmotors",
     "userInterfaceStyle": "light",
-    "newArchEnabled": false,
-    "jsEngine": "jsc",
+    "newArchEnabled": true,
+    "jsEngine": "hermes",
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
