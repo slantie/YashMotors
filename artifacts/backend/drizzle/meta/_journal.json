@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1779613812958,
+      "tag": "0000_nullable_whatsapp_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779619808507,
+      "tag": "0001_nostalgic_raider",
+      "breakpoints": true
+    }
+  ]
+}

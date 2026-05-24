@@ -1,0 +1,78 @@
+{
+  "expo": {
+    "name": "Yash Motors",
+    "slug": "yashmotors",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "yashmotors",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "jsEngine": "jsc",
+    "splash": {
+      "image": "./assets/images/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F5F7FB"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Yash Motors App needs camera access to photograph vehicles.",
+        "NSPhotoLibraryUsageDescription": "Yash Motors App needs photo access to attach vehicle images.",
+        "NSContactsUsageDescription": "Yash Motors App needs contacts access to save customer details.",
+        "LSApplicationQueriesSchemes": [
+          "whatsapp"
+        ]
+      },
+      "bundleIdentifier": "com.yashmotors.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#F5F7FB"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "package": "com.yashmotors.app"
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      "expo-contacts",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow Yash Motors App to take vehicle photos.",
+          "photosPermission": "Allow Yash Motors App to access your photos for vehicle intake."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "8caef098-0799-4582-9b27-37b5b0bda53c"
+      }
+    }
+  }
+}
