@@ -9,6 +9,7 @@ import {
   date,
   jsonb,
   numeric,
+  index,
 } from "drizzle-orm/pg-core";
 
 // ── Enums ──────────────────────────────────────────────────────────────────────
@@ -138,9 +139,13 @@ export const cases = pgTable("cases", {
   advisorId: bigint("advisor_id", { mode: "number" })
     .notNull()
     .references(() => users.id),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("cases_advisor_id_idx").on(table.advisorId),
+  index("cases_deleted_at_idx").on(table.deletedAt),
+]);
 
 // ── case_events (the timeline) ─────────────────────────────────────────────────
 
@@ -159,7 +164,9 @@ export const caseEvents = pgTable("case_events", {
   // LLM-crafted customer message (populated later)
   customerMessage: text("customer_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("case_events_case_id_idx").on(table.caseId),
+]);
 
 // ── case_event_images — images belong to events ────────────────────────────────
 
@@ -185,7 +192,9 @@ export const caseEventImages = pgTable("case_event_images", {
   lng: numeric("lng", { precision: 10, scale: 7 }),
   uploadedBy: bigint("uploaded_by", { mode: "number" }).references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("case_event_images_case_id_idx").on(table.caseId),
+]);
 
 // ── notifications ──────────────────────────────────────────────────────────────
 
@@ -206,4 +215,6 @@ export const notifications = pgTable("notifications", {
   read: boolean("read").notNull().default(false),
   pushSent: boolean("push_sent").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("notifications_user_id_idx").on(table.userId),
+]);

@@ -21,6 +21,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       WHATSAPP_API_URL: http://api-server:8080
+      WHATSAPP_INTERNAL_SECRET: ${WHATSAPP_INTERNAL_SECRET}
     depends_on:
       redis:
         condition: service_healthy
@@ -35,6 +36,7 @@ services:
     env_file: artifacts/api-server/.env
     environment:
       PORT: "8080"
+      INTERNAL_SECRET: ${WHATSAPP_INTERNAL_SECRET}
     volumes:
       - baileys_auth:/app/auth_info_baileys
     expose:
@@ -47,6 +49,12 @@ services:
     restart: unless-stopped
     expose:
       - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   nginx:
     image: nginx:1.27-alpine
@@ -58,8 +66,10 @@ services:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
-      - backend
-      - ocr
+      backend:
+        condition: service_started
+      ocr:
+        condition: service_healthy
 
 volumes:
   redis_data:

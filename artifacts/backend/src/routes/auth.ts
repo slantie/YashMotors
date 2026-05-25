@@ -12,8 +12,30 @@ import {
   refreshTokenExpiresAt,
 } from "../lib/auth.js";
 import { requireAuth, type AuthRequest } from "../middleware/requireAuth.js";
+import { redis } from "../lib/redis.js";
 
 const router = Router();
+
+// ── Login rate limiting ────────────────────────────────────────────────────────
+
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_SECS = 15 * 60;
+const failKey = (phone: string) => `login_fail:${phone}`;
+
+async function isLoginBlocked(phone: string): Promise<boolean> {
+  const count = await redis.get(failKey(phone));
+  return count !== null && parseInt(count, 10) >= MAX_LOGIN_ATTEMPTS;
+}
+
+async function recordLoginFailure(phone: string): Promise<void> {
+  const key = failKey(phone);
+  const count = await redis.incr(key);
+  if (count === 1) await redis.expire(key, LOCKOUT_SECS);
+}
+
+async function clearLoginFailures(phone: string): Promise<void> {
+  await redis.del(failKey(phone));
+}
 
 const loginSchema = z.object({
   phone: z.string().min(10),
@@ -25,6 +47,40 @@ const changePinSchema = z.object({
   newPin: z.string().length(4).regex(/^\d{4}$/),
 });
 
+// POST /auth/register — public, creates advisor account
+const registerSchema = z.object({
+  name: z.string().min(1).max(100),
+  phone: z.string().regex(/^\+?\d{8,15}$/, "Invalid phone number"),
+  pin: z.string().length(4).regex(/^\d{4}$/, "PIN must be 4 digits"),
+});
+
+router.post("/register", async (req: Request, res: Response): Promise<void> => {
+  const parsed = registerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+    return;
+  }
+  const { name, phone, pin } = parsed.data;
+
+  const [existing] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.phone, phone))
+    .limit(1);
+  if (existing) {
+    res.status(409).json({ error: "Phone already registered" });
+    return;
+  }
+
+  const pinHash = await hashPin(pin);
+  const [user] = await db
+    .insert(users)
+    .values({ name, phone, pinHash, role: "advisor" })
+    .returning({ id: users.id, name: users.name, phone: users.phone, role: users.role });
+
+  res.status(201).json(user);
+});
+
 // POST /auth/login
 router.post("/login", async (req: Request, res: Response): Promise<void> => {
   const parsed = loginSchema.safeParse(req.body);
@@ -34,6 +90,11 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
   }
   const { phone, pin } = parsed.data;
 
+  if (await isLoginBlocked(phone)) {
+    res.status(429).json({ error: "Too many failed attempts. Try again in 15 minutes." });
+    return;
+  }
+
   const [user] = await db
     .select()
     .from(users)
@@ -41,6 +102,7 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
     .limit(1);
 
   if (!user || !user.isActive) {
+    await recordLoginFailure(phone);
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
@@ -50,9 +112,12 @@ router.post("/login", async (req: Request, res: Response): Promise<void> => {
   }
   const valid = await verifyPin(pin, user.pinHash);
   if (!valid) {
+    await recordLoginFailure(phone);
     res.status(401).json({ error: "Invalid credentials" });
     return;
   }
+
+  await clearLoginFailures(phone);
 
   // Update last login
   await db

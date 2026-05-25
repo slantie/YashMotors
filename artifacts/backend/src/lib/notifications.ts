@@ -1,4 +1,4 @@
-import { eq, inArray, or } from "drizzle-orm";
+import { eq, inArray, or, and } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { notifications, users } from "../db/schema.js";
 
@@ -103,14 +103,14 @@ export async function getAdminUserIds(excludeUserId?: number): Promise<number[]>
   const result = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.isActive, true));
+    .where(
+      and(
+        eq(users.isActive, true),
+        or(eq(users.role, "admin"), eq(users.role, "superadmin"))
+      )
+    );
 
-  return result
-    .filter(
-      (u) =>
-        u.id !== excludeUserId
-    )
-    .map((u) => u.id);
+  return result.filter((u) => u.id !== excludeUserId).map((u) => u.id);
 }
 
 /** Notify all active admins + superadmins. */

@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import { cases, caseEvents } from "../db/schema.js";
@@ -12,7 +12,11 @@ router.use(requireAuth);
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 async function findCase(caseNumber: string) {
-  const [c] = await db.select().from(cases).where(eq(cases.caseNumber, caseNumber)).limit(1);
+  const [c] = await db
+    .select()
+    .from(cases)
+    .where(and(eq(cases.caseNumber, caseNumber), isNull(cases.deletedAt)))
+    .limit(1);
   return c ?? null;
 }
 
@@ -104,17 +108,18 @@ router.post("/:caseNumber/events", async (req: Request, res: Response): Promise<
 // Writes a case_edited timeline event recording exactly what changed.
 
 const editCaseSchema = z.object({
-  vehicleNumber: z.string().min(1).optional(),
-  carModel:      z.string().min(1).optional(),
-  customerPhone: z.string().nullable().optional(),
-  kmCount:       z.string().nullable().optional(),
-  dueDate:       z.string().nullable().optional(),
-  deliveryType:  z.string().nullable().optional(),
-  notes:         z.string().nullable().optional(),
+  vehicleNumber: z.string().min(1).max(50).optional(),
+  carModel:      z.string().min(1).max(100).optional(),
+  customerPhone: z.string().regex(/^\+?\d{8,15}$/).nullable().optional(),
+  customerName:  z.string().max(100).nullable().optional(),
+  kmCount:       z.string().max(20).nullable().optional(),
+  dueDate:       z.string().max(50).nullable().optional(),
+  deliveryType:  z.string().max(50).nullable().optional(),
+  notes:         z.string().max(5000).nullable().optional(),
 });
 
 const EDITABLE_FIELDS = [
-  "vehicleNumber", "carModel", "customerPhone",
+  "vehicleNumber", "carModel", "customerPhone", "customerName",
   "kmCount", "dueDate", "deliveryType", "notes",
 ] as const;
 

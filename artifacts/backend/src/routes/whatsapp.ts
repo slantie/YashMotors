@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { eq } from "drizzle-orm";
+import { eq, isNull, and } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import { cases, users, caseEvents } from "../db/schema.js";
@@ -12,7 +12,11 @@ router.use(requireAuth);
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 async function findCase(caseNumber: string) {
-  const [c] = await db.select().from(cases).where(eq(cases.caseNumber, caseNumber)).limit(1);
+  const [c] = await db
+    .select()
+    .from(cases)
+    .where(and(eq(cases.caseNumber, caseNumber), isNull(cases.deletedAt)))
+    .limit(1);
   return c ?? null;
 }
 

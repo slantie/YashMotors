@@ -1,10 +1,9 @@
 import { Router, type Request, type Response } from "express";
-import { eq, desc, or, ne, and, inArray } from "drizzle-orm";
+import { eq, desc, or, ne, and, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { cases, users, caseEvents, caseEventImages, notifications } from "../db/schema.js";
+import { cases, users, caseEvents, notifications } from "../db/schema.js";
 import { generateCaseNumber } from "../lib/caseNumber.js";
-import { deleteS3Object } from "../lib/s3.js";
 import {
   requireAuth,
   requireRole,
@@ -15,14 +14,14 @@ const router = Router();
 router.use(requireAuth);
 
 const createCaseSchema = z.object({
-  vehicleNumber: z.string().min(1),
-  carModel: z.string().min(1),
-  customerPhone: z.string().optional(),
-  customerName: z.string().optional(),
-  kmCount: z.string().optional(),
-  dueDate: z.string().optional(),
-  deliveryType: z.string().optional(),
-  notes: z.string().optional(),
+  vehicleNumber: z.string().min(1).max(50),
+  carModel: z.string().min(1).max(100),
+  customerPhone: z.string().regex(/^\+?\d{8,15}$/).optional(),
+  customerName: z.string().max(100).optional(),
+  kmCount: z.string().max(20).optional(),
+  dueDate: z.string().max(50).optional(),
+  deliveryType: z.string().max(50).optional(),
+  notes: z.string().max(5000).optional(),
 });
 
 const internalStatusSchema = z.object({
@@ -65,7 +64,7 @@ async function findCase(caseNumber: string) {
   const [c] = await db
     .select()
     .from(cases)
-    .where(eq(cases.caseNumber, caseNumber))
+    .where(and(eq(cases.caseNumber, caseNumber), isNull(cases.deletedAt)))
     .limit(1);
   return c ?? null;
 }
@@ -92,6 +91,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
       .select(caseListWithAdvisor)
       .from(cases)
       .leftJoin(users, eq(cases.advisorId, users.id))
+      .where(isNull(cases.deletedAt))
       .orderBy(desc(cases.createdAt));
     res.json(result);
     return;
@@ -102,7 +102,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
       .select(caseListWithAdvisor)
       .from(cases)
       .leftJoin(users, eq(cases.advisorId, users.id))
-      .where(eq(cases.advisorId, userId))
+      .where(and(eq(cases.advisorId, userId), isNull(cases.deletedAt)))
       .orderBy(desc(cases.createdAt));
     res.json(result);
     return;
@@ -115,6 +115,7 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
       .leftJoin(users, eq(cases.advisorId, users.id))
       .where(
         and(
+          isNull(cases.deletedAt),
           ne(cases.internalStatus, "delivered"),
           ne(cases.internalStatus, "cancelled")
         )
@@ -260,7 +261,7 @@ router.put(
   }
 );
 
-// ── DELETE /cases/:caseNumber ──────────────────────────────────────────────────
+// ── DELETE /cases/:caseNumber — soft delete ────────────────────────────────────
 
 router.delete(
   "/:caseNumber",
@@ -269,16 +270,10 @@ router.delete(
     const c = await findCase(String(req.params.caseNumber));
     if (!c) { res.status(404).json({ error: "Case not found" }); return; }
 
-    // Collect S3 keys before cascade delete wipes DB records
-    const images = await db
-      .select({ s3Key: caseEventImages.s3Key })
-      .from(caseEventImages)
-      .where(eq(caseEventImages.caseId, c.id));
-
-    await db.delete(cases).where(eq(cases.id, c.id));
-
-    // Best-effort S3 cleanup — fire and forget
-    void Promise.allSettled(images.map((img) => deleteS3Object(img.s3Key)));
+    await db
+      .update(cases)
+      .set({ deletedAt: new Date() })
+      .where(eq(cases.id, c.id));
 
     res.status(204).end();
   }

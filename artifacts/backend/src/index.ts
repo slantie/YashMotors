@@ -1,5 +1,5 @@
 import "dotenv/config";
-import express from "express";
+import express, { type ErrorRequestHandler } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import pino from "pino";
@@ -33,6 +33,20 @@ app.use("/cases", caseEventsRouter);
 app.use("/cases", imagesRouter);
 app.use("/cases", whatsappRouter);
 app.use("/notifications", notificationsRouter);
+
+const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+  logger.error({ err }, "Unhandled error");
+  const status =
+    (err as { status?: number; statusCode?: number }).status ??
+    (err as { status?: number; statusCode?: number }).statusCode ??
+    500;
+  res.status(status).json({ error: (err as Error).message ?? "Internal server error" });
+};
+app.use(errorHandler);
+
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "Unhandled promise rejection");
+});
 
 app.listen(env.PORT, () => {
   logger.info({ port: env.PORT }, "Backend server listening");

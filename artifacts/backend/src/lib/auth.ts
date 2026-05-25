@@ -4,7 +4,7 @@ import crypto from "crypto";
 import { env } from "../env.js";
 
 const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
-const ACCESS_TOKEN_TTL = "8h";
+const ACCESS_TOKEN_TTL = "15m";
 const REFRESH_TOKEN_TTL_DAYS = 30;
 
 export interface JwtPayload {

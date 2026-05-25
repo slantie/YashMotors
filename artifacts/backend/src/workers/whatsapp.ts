@@ -17,9 +17,13 @@ const jitter = (min: number, max: number) => min + Math.random() * (max - min);
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 async function callBaileys<T>(path: string, body: unknown): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (env.WHATSAPP_INTERNAL_SECRET) {
+    headers["x-internal-secret"] = env.WHATSAPP_INTERNAL_SECRET;
+  }
   const res = await fetch(`${env.WHATSAPP_API_URL}/api${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   const data = (await res.json()) as T & { success?: boolean; error?: string };
