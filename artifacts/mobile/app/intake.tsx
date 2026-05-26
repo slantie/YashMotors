@@ -1,9 +1,10 @@
 import * as Haptics from "expo-haptics";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,7 +19,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ActionButton } from "@/components/ActionButton";
 import { AppHeader } from "@/components/AppHeader";
 import { CarModelDropdown } from "@/components/CarModelDropdown";
-import { DeliveryTypeSelector, DeliveryType } from "@/components/DeliveryTypeSelector";
+import {
+  DeliveryTypeSelector,
+  DeliveryType,
+} from "@/components/DeliveryTypeSelector";
 import { DueDateSelector, DueDateOption } from "@/components/DueDateSelector";
 import { FormInput } from "@/components/FormInput";
 import {
@@ -41,7 +45,7 @@ interface FormValues {
 export default function IntakeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { formData, setFormData, reset } = useIntakeStore();
+  const { formData, setFormData, reset, createdCaseNumber } = useIntakeStore();
 
   const {
     control,
@@ -60,31 +64,59 @@ export default function IntakeScreen() {
     },
   });
 
+  // When user returns to intake screen after a case was successfully created,
+  // clear the store so the form starts fresh for the next vehicle.
+  useFocusEffect(
+    useCallback(() => {
+      if (createdCaseNumber) {
+        reset();
+        resetForm({
+          carModel: "",
+          customerName: "",
+          contactNumber: "",
+          kmCount: "",
+          dueDate: "",
+          deliveryType: "",
+          notes: "",
+        });
+      }
+    }, [createdCaseNumber]),
+  );
+
   const onSubmit = useCallback(
     (values: FormValues) => {
       setFormData(values);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       router.push("/ocr-preview");
     },
-    [setFormData, router]
+    [setFormData, router],
   );
 
   const handleReset = () => {
-    reset();
-    resetForm({
-      carModel: "",
-      customerName: "",
-      contactNumber: "",
-      kmCount: "",
-      dueDate: "",
-      deliveryType: "",
-      notes: "",
-    });
-    setFormData({
-      primaryImage: null,
-      additionalImages: [],
-    });
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert("Reset Form", "This will clear all entered data and photos.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Reset",
+        style: "destructive",
+        onPress: () => {
+          reset();
+          resetForm({
+            carModel: "",
+            customerName: "",
+            contactNumber: "",
+            kmCount: "",
+            dueDate: "",
+            deliveryType: "",
+            notes: "",
+          });
+          setFormData({
+            primaryImage: null,
+            additionalImages: [],
+          });
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        },
+      },
+    ]);
   };
 
   return (
@@ -94,10 +126,16 @@ export default function IntakeScreen() {
         subtitle="Vehicle Intake"
         rightElement={
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => router.push("/(cases)")} hitSlop={8}>
-              <Feather name="folder" size={20} color={colors.textSecondary} />
+            <TouchableOpacity
+              onPress={() => router.push("/(tabs)/cases")}
+              hitSlop={8}
+            >
+              <Feather name="folder" size={20} color={colors.textMuted} />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => router.push("/settings")} hitSlop={8}>
+            <TouchableOpacity
+              onPress={() => router.push("/(tabs)/settings")}
+              hitSlop={8}
+            >
               <Feather name="settings" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -116,6 +154,26 @@ export default function IntakeScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {/* Step indicator */}
+          <View style={styles.stepsRow}>
+            <View style={styles.stepItem}>
+              <View style={[styles.stepDot, styles.stepDotActive]} />
+              <Text style={[styles.stepLabel, styles.stepLabelActive]}>
+                Photos
+              </Text>
+            </View>
+            <View style={styles.stepLine} />
+            <View style={styles.stepItem}>
+              <View style={styles.stepDot} />
+              <Text style={styles.stepLabel}>Vehicle</Text>
+            </View>
+            <View style={styles.stepLine} />
+            <View style={styles.stepItem}>
+              <View style={styles.stepDot} />
+              <Text style={styles.stepLabel}>Customer</Text>
+            </View>
+          </View>
+
           {/* Vehicle Photos */}
           <View style={styles.section}>
             <SectionHeader label="Vehicle Photos" />
@@ -123,11 +181,10 @@ export default function IntakeScreen() {
               value={formData.primaryImage}
               onChange={(uri) => setFormData({ primaryImage: uri })}
             />
+            <Text style={styles.hintText}>Required for plate scan</Text>
             <AdditionalImagesPicker
               images={formData.additionalImages}
-              onImagesChange={(imgs) =>
-                setFormData({ additionalImages: imgs })
-              }
+              onImagesChange={(imgs) => setFormData({ additionalImages: imgs })}
             />
           </View>
 
@@ -260,7 +317,11 @@ export default function IntakeScreen() {
             <Text style={styles.resetText}>Reset Form</Text>
           </Pressable>
           <ActionButton
-            label="Scan Number Plate"
+            label={
+              formData.primaryImage
+                ? "Scan Number Plate"
+                : "Skip Photo & Continue"
+            }
             icon="camera"
             iconRight="arrow-right"
             onPress={handleSubmit(onSubmit)}
@@ -282,6 +343,43 @@ function SectionHeader({ label }: { label: string }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  stepsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    paddingHorizontal: 16,
+  },
+  stepItem: {
+    alignItems: "center",
+    gap: 4,
+  },
+  stepDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.border,
+  },
+  stepDotActive: {
+    backgroundColor: colors.primary,
+  },
+  stepLabel: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  stepLabelActive: {
+    color: colors.primary,
+  },
+  stepLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+    marginHorizontal: 8,
+    marginBottom: 16,
+  },
   flex: { flex: 1 },
   scroll: { flex: 1 },
   content: {
@@ -315,10 +413,17 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
     letterSpacing: 0.2,
+  },
+  hintText: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.textMuted,
+    marginTop: -8,
+    marginBottom: 16,
   },
   notesInput: {
     minHeight: 88,
@@ -336,7 +441,7 @@ const styles = StyleSheet.create({
   resetText: {
     textAlign: "center",
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
     paddingVertical: 4,
   },

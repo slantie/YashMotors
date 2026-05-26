@@ -8,6 +8,7 @@ export interface AuthUser {
   name: string;
   role: AuthRole;
   phone: string;
+  avatarUrl?: string | null;
 }
 
 interface AuthStore {

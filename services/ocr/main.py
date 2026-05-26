@@ -24,6 +24,7 @@ PLATE_RE = re.compile(r"[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}")
 MAX_DIM = 1920
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 MIN_CONF = 0.5
+MIN_CONF_COMBINE = 0.30   # lower bar for multi-box combination pass only
 SKIP_WORDS = {"IND", "IN", "INDIA"}
 
 # Positional OCR confusion maps for Indian plates
@@ -153,6 +154,8 @@ async def ocr_plate(image: UploadFile = File(...)):
     plate = ""
     plate_conf: float | None = None
     all_texts: list[str] = []
+    # (x_left, text) for boxes that pass the combination threshold — sorted spatially
+    combine_candidates: list[tuple[float, str]] = []
     detection_count = 0
 
     # PaddleOCR returns list-of-pages; each page: [[bbox, (text, conf)], ...]
@@ -164,12 +167,18 @@ async def ocr_plate(image: UploadFile = File(...)):
             text, conf = text_conf[0], float(text_conf[1])
             logger.info("  detected: %r  conf=%.2f", text, conf)
 
-            if conf < MIN_CONF:
-                logger.info("  → skipped (conf %.2f < %.2f)", conf, MIN_CONF)
-                continue
             clean = re.sub(r"[^A-Z0-9]", "", text.upper())
             if clean in SKIP_WORDS:
                 logger.info("  → skipped (plate label word)")
+                continue
+
+            # Track any box above combination threshold for spatial multi-box pass
+            if conf >= MIN_CONF_COMBINE:
+                x_left = min(pt[0] for pt in bbox)
+                combine_candidates.append((x_left, text))
+
+            if conf < MIN_CONF:
+                logger.info("  → skipped (conf %.2f < %.2f)", conf, MIN_CONF)
                 continue
 
             detection_count += 1
@@ -182,13 +191,21 @@ async def ocr_plate(image: UploadFile = File(...)):
                     plate_conf = conf
                     logger.info("  MATCHED: %r (conf=%.2f)", plate, conf)
 
-    if not plate and all_texts:
-        combined = " ".join(all_texts)
-        logger.info("  No single-box match. Trying combined: %r", combined)
-        found = try_extract_plate(combined)
-        if found:
-            plate = found
-            logger.info("  MATCHED from combined: %r", plate)
+    if not plate and combine_candidates:
+        # Sort left-to-right so plate fragments join in reading order
+        combine_candidates.sort(key=lambda t: t[0])
+        combined_spatial = "".join(t for _, t in combine_candidates)
+        combined_spaced  = " ".join(t for _, t in combine_candidates)
+        logger.info(
+            "  No single-box match. Trying spatial-combined: %r (from %d boxes, min_conf=%.2f)",
+            combined_spatial, len(combine_candidates), MIN_CONF_COMBINE,
+        )
+        for candidate in (combined_spatial, combined_spaced):
+            found = try_extract_plate(candidate)
+            if found:
+                plate = found
+                logger.info("  MATCHED from combined: %r", plate)
+                break
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
     logger.info("=== done %dms plate=%r ===", elapsed_ms, plate)

@@ -36,6 +36,13 @@ async function callBaileys<T>(path: string, body: unknown): Promise<T> {
 // ── job processors ─────────────────────────────────────────────────────────────
 
 async function processCreateGroup(data: CreateGroupJobData): Promise<void> {
+  const [currentCase] = await db.select({ id: cases.id, deletedAt: cases.deletedAt })
+    .from(cases).where(eq(cases.id, data.caseId)).limit(1);
+  if (!currentCase || currentCase.deletedAt !== null) {
+    console.log(`[WA Worker] Case ${data.caseId} deleted — skipping create_group job`);
+    return;
+  }
+
   // Random human-like delay before triggering action (3–8 s)
   await sleep(jitter(3000, 8000));
 
@@ -87,6 +94,13 @@ async function processCreateGroup(data: CreateGroupJobData): Promise<void> {
 }
 
 async function processSendMessage(data: SendMessageJobData): Promise<void> {
+  const [currentCase] = await db.select({ id: cases.id, deletedAt: cases.deletedAt })
+    .from(cases).where(eq(cases.id, data.caseId)).limit(1);
+  if (!currentCase || currentCase.deletedAt !== null) {
+    console.log(`[WA Worker] Case ${data.caseId} deleted — skipping send_message job`);
+    return;
+  }
+
   // Longer delay for messages — less urgent, more human-like (5–15 s)
   await sleep(jitter(5000, 15000));
 
@@ -161,6 +175,28 @@ export function startWhatsAppWorker(): void {
         );
       } catch (dbErr) {
         console.error("[WA Worker] Failed to write failure event to DB:", dbErr);
+      }
+    }
+
+    if (job.attemptsMade >= maxAttempts && job.data.type === "send_message") {
+      try {
+        const [failEvent] = await db.insert(caseEvents).values({
+          caseId: job.data.caseId,
+          eventType: "message_failed",
+          createdBy: job.data.requestedBy,
+          metadata: { groupId: job.data.groupId, error: err.message, attempts: job.attemptsMade },
+        }).returning();
+
+        void createNotification({
+          userId: job.data.requestedBy,
+          caseId: job.data.caseId,
+          eventId: failEvent.id,
+          title: `Message send failed — ${job.data.caseNumber}`,
+          body: "WhatsApp message could not be delivered after multiple attempts.",
+          data: { caseNumber: job.data.caseNumber },
+        });
+      } catch (dbErr) {
+        console.error("[WA Worker] Failed to write send_message failure event to DB:", dbErr);
       }
     }
   });

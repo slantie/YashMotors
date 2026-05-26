@@ -19,6 +19,7 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Yash Motors App needs camera access to photograph vehicles.",
         "NSPhotoLibraryUsageDescription": "Yash Motors App needs photo access to attach vehicle images.",
+        "NSPhotoLibraryAddUsageDescription": "Yash Motors App needs permission to save vehicle images to your photo library.",
         "NSContactsUsageDescription": "Yash Motors App needs contacts access to save customer details.",
         "LSApplicationQueriesSchemes": [
           "whatsapp"
@@ -35,6 +36,7 @@
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS",
         "android.permission.RECORD_AUDIO"
@@ -45,12 +47,7 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
-      [
-        "expo-router",
-        {
-          "origin": "https://replit.com/"
-        }
-      ],
+      "expo-router",
       "expo-font",
       "expo-web-browser",
       "expo-contacts",
@@ -61,15 +58,20 @@
           "photosPermission": "Allow Yash Motors App to access your photos for vehicle intake."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Yash Motors App to save vehicle images to your photo library.",
+          "savePhotosPermission": "Allow Yash Motors App to save vehicle images to your photo library.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
-      "router": {
-        "origin": "https://replit.com/"
-      },
       "eas": {
         "projectId": "8caef098-0799-4582-9b27-37b5b0bda53c"
       }

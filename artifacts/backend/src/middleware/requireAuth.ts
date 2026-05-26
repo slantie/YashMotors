@@ -20,7 +20,8 @@ export async function requireAuth(
     const payload = await verifyAccessToken(token);
     (req as AuthRequest).user = payload;
     next();
-  } catch {
+  } catch (err) {
+    console.warn("[requireAuth] Token verification failed:", err instanceof Error ? err.message : err);
     res.status(401).json({ error: "Invalid or expired token" });
   }
 }

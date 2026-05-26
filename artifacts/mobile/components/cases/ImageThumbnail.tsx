@@ -5,7 +5,6 @@ import {
   Image,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 
@@ -17,6 +16,8 @@ interface ImageThumbnailProps {
   onPress: () => void;
   onLongPress?: () => void;
   uploading?: boolean;
+  selectMode?: boolean;
+  selected?: boolean;
 }
 
 export function ImageThumbnail({
@@ -24,6 +25,8 @@ export function ImageThumbnail({
   onPress,
   onLongPress,
   uploading,
+  selectMode,
+  selected,
 }: ImageThumbnailProps) {
   return (
     <Pressable
@@ -40,6 +43,13 @@ export function ImageThumbnail({
       {uploading && (
         <View style={styles.uploadOverlay}>
           <ActivityIndicator color="#fff" size="small" />
+        </View>
+      )}
+      {selectMode && (
+        <View style={[styles.selectOverlay, selected && styles.selectOverlayActive]}>
+          <View style={[styles.selectCircle, selected && styles.selectCircleActive]}>
+            {selected && <Feather name="check" size={12} color="#fff" />}
+          </View>
         </View>
       )}
     </Pressable>
@@ -79,5 +89,29 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  selectOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+  },
+  selectOverlayActive: {
+    backgroundColor: "rgba(0,0,0,0.28)",
+  },
+  selectCircle: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.75)",
+    backgroundColor: "rgba(0,0,0,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectCircleActive: {
+    backgroundColor: colors.primary,
+    borderColor: "#fff",
   },
 });

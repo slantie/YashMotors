@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useNavigation } from "expo-router";
 import React from "react";
 import {
   Pressable,
@@ -25,6 +25,7 @@ export function AppHeader({
   rightElement,
 }: AppHeaderProps) {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
   return (
@@ -32,7 +33,7 @@ export function AppHeader({
       <View style={styles.row}>
         {showBack ? (
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => navigation.canGoBack() ? router.back() : router.replace("/(tabs)")}
             style={({ pressed }) => [
               styles.sideSlot,
               styles.backBtn,
@@ -99,13 +100,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700" as const,
     color: colors.text,
-    fontFamily: "Inter_700Bold",
+    fontFamily: "PlusJakartaSans_700Bold",
     letterSpacing: 0.3,
   },
   subtitle: {
     fontSize: 12,
     color: colors.textSecondary,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     marginTop: 1,
   },
   right: {

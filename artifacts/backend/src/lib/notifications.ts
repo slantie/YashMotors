@@ -123,9 +123,12 @@ export async function notifyAdmins(
       .select({ id: users.id })
       .from(users)
       .where(
-        or(
-          eq(users.role, "admin"),
-          eq(users.role, "superadmin")
+        and(
+          eq(users.isActive, true),
+          or(
+            eq(users.role, "admin"),
+            eq(users.role, "superadmin")
+          )
         )
       );
 

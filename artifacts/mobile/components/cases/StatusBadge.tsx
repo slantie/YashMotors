@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 11,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
   },
 });

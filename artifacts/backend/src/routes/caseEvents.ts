@@ -87,7 +87,7 @@ router.post("/:caseNumber/events", async (req: Request, res: Response): Promise<
     });
   }
 
-  // customer_update → notify all admins/superadmins
+  // customer_update → notify all admins/superadmins + case owner if someone else posted
   if (parsed.data.eventType === "customer_update") {
     void notifyAdmins(
       {
@@ -99,6 +99,16 @@ router.post("/:caseNumber/events", async (req: Request, res: Response): Promise<
       },
       userId
     );
+    if (userId !== c.advisorId) {
+      void createNotification({
+        userId: c.advisorId,
+        caseId: c.id,
+        eventId: event.id,
+        title: `Customer Update — ${c.caseNumber}`,
+        body: preview,
+        data: { caseNumber: c.caseNumber },
+      });
+    }
   }
 
   res.status(201).json(event);
@@ -135,6 +145,13 @@ router.patch("/:caseNumber", async (req: Request, res: Response): Promise<void> 
   if (!c) { res.status(404).json({ error: "Case not found" }); return; }
   if (!canAccessCase(role, c.advisorId, userId)) {
     res.status(403).json({ error: "Forbidden" }); return;
+  }
+
+  if (
+    (c.internalStatus === "delivered" || c.internalStatus === "cancelled") &&
+    role !== "admin" && role !== "superadmin"
+  ) {
+    res.status(409).json({ error: "Case is closed and cannot be edited" }); return;
   }
 
   // Compute diff — skip fields not in the request body (undefined means untouched)

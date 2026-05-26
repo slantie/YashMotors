@@ -38,6 +38,7 @@ export interface CaseListItem {
   customerStatus: CustomerStatus;
   advisorId: number;
   advisorName?: string;
+  primaryImageUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,6 +50,7 @@ export interface CaseEvent {
   message?: string;
   metadata?: Record<string, unknown>;
   createdBy: number;
+  createdByName?: string | null;
   createdAt: string;
 }
 
@@ -93,7 +95,14 @@ async function request<T>(path: string, init?: RequestInit, hasRetried = false):
 
   const res = await fetch(apiUrl(path), { ...init, headers });
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error("Invalid response from server.");
+    }
+  }
 
   if (res.status === 401 && !hasRetried) {
     const refreshed = await useAuthStore.getState().refreshAccessToken();
@@ -106,7 +115,8 @@ async function request<T>(path: string, init?: RequestInit, hasRetried = false):
     if (res.status === 401) {
       await useAuthStore.getState().logout();
     }
-    throw new Error(data?.error || data?.message || "Request failed.");
+    const errBody = data as { error?: string; message?: string } | null;
+    throw new Error(errBody?.error || errBody?.message || "Request failed.");
   }
 
   return data as T;
@@ -114,6 +124,10 @@ async function request<T>(path: string, init?: RequestInit, hasRetried = false):
 
 export function fetchCases(): Promise<CaseListItem[]> {
   return request<CaseListItem[]>("/cases");
+}
+
+export function fetchTechnicianHistory(): Promise<CaseListItem[]> {
+  return request<CaseListItem[]>("/cases?history=1");
 }
 
 export function fetchCase(caseNumber: string): Promise<CaseDetail> {

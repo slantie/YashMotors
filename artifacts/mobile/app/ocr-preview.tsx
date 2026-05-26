@@ -30,7 +30,7 @@ import { useIntakeStore } from "@/store/useIntakeStore";
 export default function OcrPreviewScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { vehicleNumber, setVehicleNumber, formData, reset } = useIntakeStore();
+  const { vehicleNumber, setVehicleNumber, formData, setCreatedCaseNumber } = useIntakeStore();
 
   const [scanning, setScanning] = useState(true);
   const [vn, setVn] = useState(vehicleNumber || "");
@@ -39,7 +39,8 @@ export default function OcrPreviewScreen() {
     phase: "idle" | "creating" | "uploading";
     done: number;
     total: number;
-  }>({ phase: "idle", done: 0, total: 0 });
+    failedCount: number;
+  }>({ phase: "idle", done: 0, total: 0, failedCount: 0 });
   const scanAnim = useRef(new Animated.Value(0)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(0.95)).current;
@@ -109,7 +110,7 @@ export default function OcrPreviewScreen() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      setUploadStatus({ phase: "creating", done: 0, total: 0 });
+      setUploadStatus({ phase: "creating", done: 0, total: 0, failedCount: 0 });
       const trimmed = vn.trim().toUpperCase().replace(/\s/g, "");
       setVehicleNumber(trimmed);
 
@@ -131,35 +132,38 @@ export default function OcrPreviewScreen() {
       ];
 
       if (all.length > 0) {
-        setUploadStatus({ phase: "uploading", done: 0, total: all.length });
-        const confirmed: ConfirmImageItem[] = [];
+        setUploadStatus({ phase: "uploading", done: 0, total: all.length, failedCount: 0 });
 
-        for (const { uri, isPrimary } of all) {
-          console.log(`[upload] starting uri=${uri} isPrimary=${isPrimary}`);
+        const uploadOne = async ({ uri, isPrimary }: { uri: string; isPrimary: boolean }): Promise<ConfirmImageItem | null> => {
+          const filename = isPrimary
+            ? "primary.jpg"
+            : `${Array.from({ length: 4 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("")}.jpg`;
           try {
-            const filename = isPrimary
-              ? "primary.jpg"
-              : `${Array.from({ length: 4 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("")}.jpg`;
-            const presigned = await presignImage(created.caseNumber, {
-              filename,
-              contentType: "image/jpeg",
-              folder: "intake",
-            });
-            console.log(`[upload] presign ok key=${presigned.key}`);
+            const presigned = await presignImage(created.caseNumber, { filename, contentType: "image/jpeg", folder: "intake" });
             await uploadImageToS3(presigned.uploadUrl, uri, "image/jpeg");
-            console.log(`[upload] s3 ok key=${presigned.key}`);
-            confirmed.push({ key: presigned.key, filename, folder: "intake", isPrimary });
+            return { key: presigned.key, filename, folder: "intake", isPrimary };
           } catch (e) {
             console.error(`[upload] FAILED uri=${uri}`, e);
+            return null;
+          } finally {
+            setUploadStatus((prev) => ({ ...prev, done: prev.done + 1 }));
           }
-          setUploadStatus((prev) => ({ ...prev, done: prev.done + 1 }));
+        };
+
+        const results = await Promise.allSettled(all.map(uploadOne));
+        const confirmed: ConfirmImageItem[] = results
+          .map((r) => (r.status === "fulfilled" ? r.value : null))
+          .filter((v): v is ConfirmImageItem => v !== null);
+
+        const failCount = all.length - confirmed.length;
+        if (failCount > 0) {
+          console.warn(`[upload] ${failCount}/${all.length} images failed`);
+          setUploadStatus((prev) => ({ ...prev, failedCount: failCount }));
         }
 
-        console.log(`[upload] confirmed=${confirmed.length}/${all.length}`);
         if (confirmed.length > 0) {
           try {
             await confirmImages(created.caseNumber, confirmed);
-            console.log(`[upload] confirm ok`);
             queryClient.invalidateQueries({ queryKey: ["images", created.caseNumber, "intake"] });
           } catch (e) {
             console.error(`[upload] confirm FAILED`, e);
@@ -171,15 +175,29 @@ export default function OcrPreviewScreen() {
     },
     onSuccess: (created) => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      reset();
-      setUploadStatus({ phase: "idle", done: 0, total: 0 });
-      router.replace({
+      const failedCount = uploadStatus.failedCount;
+      setUploadStatus({ phase: "idle", done: 0, total: 0, failedCount: 0 });
+      // Store caseNumber so WhatsApp workflow can reference this case; intake
+      // screen resets the store when user starts a new intake (via useFocusEffect).
+      setCreatedCaseNumber(created.caseNumber);
+
+      const navigate = () => router.replace({
         pathname: "/(cases)/[caseNumber]",
         params: { caseNumber: created.caseNumber },
       });
+
+      if (failedCount > 0) {
+        Alert.alert(
+          "Case created",
+          `${failedCount} photo${failedCount > 1 ? "s" : ""} failed to upload. You can upload them from the case detail screen.`,
+          [{ text: "OK", onPress: navigate }]
+        );
+      } else {
+        navigate();
+      }
     },
     onError: (err) => {
-      setUploadStatus({ phase: "idle", done: 0, total: 0 });
+      setUploadStatus({ phase: "idle", done: 0, total: 0, failedCount: 0 });
       Alert.alert(
         "Could not create case",
         err instanceof Error ? err.message : "Please try again."
@@ -321,35 +339,35 @@ const styles = StyleSheet.create({
   capturedImage: {
     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
   },
-  cameraHint: { position: "absolute", bottom: 12, fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary },
+  cameraHint: { position: "absolute", bottom: 12, fontSize: 12, fontFamily: "PlusJakartaSans_400Regular", color: colors.textSecondary },
   resultCard: {
     backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1,
     borderColor: colors.border, padding: 16, marginBottom: 16,
   },
   resultHeader: { flexDirection: "row", alignItems: "center", marginBottom: 14, gap: 10 },
   successBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.success, alignItems: "center", justifyContent: "center" },
-  resultLabel: { fontSize: 14, fontFamily: "Inter_500Medium", fontWeight: "500" as const, color: colors.textSecondary },
+  resultLabel: { fontSize: 14, fontFamily: "PlusJakartaSans_500Medium", fontWeight: "500" as const, color: colors.textSecondary },
   vnInput: {
     backgroundColor: colors.inputBg, borderRadius: colors.radius, borderWidth: 2,
     borderColor: colors.primary, color: colors.text, fontSize: 28,
-    fontFamily: "Inter_700Bold", fontWeight: "700" as const,
+    fontFamily: "PlusJakartaSans_700Bold", fontWeight: "700" as const,
     paddingHorizontal: 16, paddingVertical: 14, letterSpacing: 3,
     textAlign: "center", marginBottom: 8,
   },
-  editHint: { fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textMuted, textAlign: "center", marginBottom: 14 },
+  editHint: { fontSize: 12, fontFamily: "PlusJakartaSans_400Regular", color: colors.textMuted, textAlign: "center", marginBottom: 14 },
   metaRow: { flexDirection: "row", gap: 8 },
   metaPill: {
     flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: colors.primaryFaint, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5,
   },
-  metaText: { fontSize: 11, fontFamily: "Inter_500Medium", color: colors.primary },
+  metaText: { fontSize: 11, fontFamily: "PlusJakartaSans_500Medium", color: colors.primary },
   scanningCard: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1,
     borderColor: colors.border, padding: 16, marginBottom: 16,
   },
   scanDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
-  scanningText: { fontSize: 14, fontFamily: "Inter_400Regular", color: colors.textSecondary },
+  scanningText: { fontSize: 14, fontFamily: "PlusJakartaSans_400Regular", color: colors.textSecondary },
   footer: { marginTop: "auto" },
   createBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
@@ -357,6 +375,6 @@ const styles = StyleSheet.create({
   },
   createBtnDisabled: { opacity: 0.45 },
   createBtnText: {
-    fontSize: 16, fontFamily: "Inter_700Bold", fontWeight: "700" as const, color: "#fff",
+    fontSize: 16, fontFamily: "PlusJakartaSans_700Bold", fontWeight: "700" as const, color: "#fff",
   },
 });

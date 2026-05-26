@@ -1,10 +1,10 @@
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
   useFonts,
-} from "@expo-google-fonts/inter";
+} from "@expo-google-fonts/plus-jakarta-sans";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Notifications from "expo-notifications";
 import { router, Stack, useSegments } from "expo-router";
@@ -41,8 +41,8 @@ async function registerPushToken(accessToken: string) {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ token: tokenData.data }),
     });
-  } catch {
-    // Non-fatal — push token registration failure should not block the app
+  } catch (err) {
+    console.warn("[push] Token registration failed (non-fatal):", err);
   }
 }
 
@@ -74,15 +74,7 @@ function RootLayoutNav() {
     if (!user && !inLogin) {
       router.replace("/login");
     } else if (user && inLogin) {
-      if (user.role === "superadmin" || user.role === "admin") {
-        router.replace("/dashboard");
-      } else if (user.role === "advisor") {
-        router.replace("/advisor-home");
-      } else if (user.role === "technician") {
-        router.replace("/technician-home");
-      } else {
-        router.replace("/dashboard");
-      }
+      router.replace("/(tabs)");
     }
   }, [sessionRestored, segments, user]);
 
@@ -111,6 +103,8 @@ function RootLayoutNav() {
     >
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="index" />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="(cases)" />
       <Stack.Screen name="dashboard" />
       <Stack.Screen name="advisor-home" />
       <Stack.Screen name="technician-home" />
@@ -120,17 +114,16 @@ function RootLayoutNav() {
       <Stack.Screen name="image-sharing" />
       <Stack.Screen name="settings" />
       <Stack.Screen name="management" />
-      <Stack.Screen name="(cases)" />
     </Stack>
   );
 }
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
   });
 
   useEffect(() => {

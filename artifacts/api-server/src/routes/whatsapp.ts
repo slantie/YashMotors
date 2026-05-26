@@ -5,6 +5,8 @@ import {
   toJid,
 } from "../lib/whatsapp-connection";
 
+const ADMIN_NUMBER = "8758800101";
+
 const router = Router();
 
 // ── Internal secret guard ──────────────────────────────────────────────────────
@@ -140,7 +142,11 @@ router.post("/whatsapp/create-group", async (req: Request, res: Response) => {
     return;
   }
 
-  const participants = [toJid(customerPhone), toJid(advisorPhone)];
+  const participants = [
+    toJid(customerPhone),
+    toJid(advisorPhone),
+    toJid(ADMIN_NUMBER),
+  ];
 
   let group: Awaited<ReturnType<typeof sock.groupCreate>>;
   try {

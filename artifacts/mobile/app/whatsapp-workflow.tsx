@@ -37,8 +37,10 @@ import {
 export default function WhatsappWorkflowScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { formData, vehicleNumber } = useIntakeStore();
-  const advisorPhone = useAuthStore((state) => state.user?.phone);
+  const { formData, vehicleNumber, createdCaseNumber } = useIntakeStore();
+  const authUser = useAuthStore((state) => state.user);
+  const advisorPhone = authUser?.phone;
+  const accessToken = useAuthStore((state) => state.accessToken);
 
   const [copiedGroup, setCopiedGroup] = useState(false);
   const [copiedMsg, setCopiedMsg] = useState(false);
@@ -198,6 +200,10 @@ export default function WhatsappWorkflowScreen() {
       Alert.alert("Config missing", "Set EXPO_PUBLIC_API_URL in artifacts/mobile/.env.local (see .env.example).");
       return;
     }
+    if (!createdCaseNumber) {
+      Alert.alert("No case yet", "Create the job card first (tap 'Create Job Card' in the OCR screen).");
+      return;
+    }
     if (!formData.contactNumber) {
       Alert.alert("No contact", "Add customer phone in Intake screen first.");
       return;
@@ -213,22 +219,29 @@ export default function WhatsappWorkflowScreen() {
     setServerGroupLoading(true);
     setServerGroupError(null);
     try {
-      const res = await fetch(`${apiUrl}/api/whatsapp/create-group`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          groupName,
-          customerPhone: formData.contactNumber,
-          advisorPhone,
-          initialMessage: message,
-        }),
-      });
-      const data = await res.json() as { success: boolean; inviteLink?: string; groupId?: string; messageSent?: boolean; messageError?: string; error?: string };
-      if (data.success && data.groupId) {
-        setServerGroup({ inviteLink: data.inviteLink ?? "", groupId: data.groupId, messageSent: data.messageSent ?? false });
-        if (data.messageError) {
-          Alert.alert("Group created", `Group was created but the intake message could not be sent automatically.\n\nError: ${data.messageError}\n\nYou can copy and paste it manually.`);
+      // Use the proper backend route so the group gets linked to the DB case.
+      const res = await fetch(
+        `${apiUrl.replace(/\/$/, "")}/cases/${encodeURIComponent(createdCaseNumber)}/whatsapp/create-group`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          },
+          body: JSON.stringify({
+            advisorPhone,
+            initialMessage: message,
+          }),
         }
+      );
+      const data = await res.json() as { jobId?: string; whatsappStatus?: string; groupName?: string; error?: string };
+      if (res.ok && data.jobId) {
+        setServerGroup({ inviteLink: "", groupId: data.jobId, messageSent: false });
+        Alert.alert(
+          "Group creation queued",
+          "WhatsApp group will be created automatically in a few seconds. You'll get a notification when it's ready.",
+          [{ text: "OK" }]
+        );
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
         setServerGroupError(data.error ?? "Unknown server error");
@@ -484,13 +497,13 @@ const mdStyles = StyleSheet.create({
   line: { flex: 1, height: 1, backgroundColor: colors.border },
   label: {
     fontSize: 11,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textMuted,
     letterSpacing: 0.3,
     flexShrink: 0,
   },
   resetBtn: { marginLeft: 4 },
-  resetText: { fontSize: 11, fontFamily: "Inter_500Medium", color: colors.textMuted },
+  resetText: { fontSize: 11, fontFamily: "PlusJakartaSans_500Medium", color: colors.textMuted },
 });
 
 // ── Method 1 flow ─────────────────────────────────────────────────────────────
@@ -716,7 +729,7 @@ const sgStyles = StyleSheet.create({
   },
   createBtnText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#fff",
   },
@@ -728,7 +741,7 @@ const sgStyles = StyleSheet.create({
   },
   linkText: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.whatsapp,
     flex: 1,
     textDecorationLine: "underline",
@@ -747,7 +760,7 @@ const sgStyles = StyleSheet.create({
   errorText: {
     flex: 1,
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.destructive,
     lineHeight: 16,
   },
@@ -839,11 +852,11 @@ const sbStyles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-  numText: { fontSize: 12, fontFamily: "Inter_700Bold", color: "#fff" },
+  numText: { fontSize: 12, fontFamily: "PlusJakartaSans_700Bold", color: "#fff" },
   textWrap: { flex: 1 },
   title: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
     marginBottom: 2,
@@ -851,7 +864,7 @@ const sbStyles = StyleSheet.create({
   titleDisabled: { color: colors.textMuted },
   subtitle: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
     lineHeight: 16,
   },
@@ -880,7 +893,7 @@ const gcStyles = StyleSheet.create({
     marginBottom: 4,
   },
   plusWrap: { width: 16, alignItems: "center" },
-  plus: { fontSize: 14, fontFamily: "Inter_700Bold", color: colors.textMuted },
+  plus: { fontSize: 14, fontFamily: "PlusJakartaSans_700Bold", color: colors.textMuted },
   progressTrack: {
     height: 3,
     backgroundColor: colors.border,
@@ -903,13 +916,13 @@ const gcStyles = StyleSheet.create({
   },
   guideTitle: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     color: colors.whatsapp,
     marginBottom: 6,
   },
   guideStep: {
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
     lineHeight: 19,
   },
@@ -926,7 +939,7 @@ const gcStyles = StyleSheet.create({
   successText: {
     flex: 1,
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.success,
     lineHeight: 17,
   },
@@ -947,7 +960,7 @@ const slStyles = StyleSheet.create({
   dot: { width: 4, height: 18, borderRadius: 2 },
   label: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.textSecondary,
     letterSpacing: 0.5,
@@ -985,7 +998,7 @@ const carStyles = StyleSheet.create({
   rowOk: { backgroundColor: colors.success + "15", borderColor: colors.success + "40" },
   text: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.primary,
   },
@@ -1030,8 +1043,8 @@ const liStyles = StyleSheet.create({
   },
   icon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   text: { flex: 1 },
-  title: { fontSize: 14, fontFamily: "Inter_600SemiBold", fontWeight: "600" as const, color: colors.text },
-  sub: { fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 2 },
+  title: { fontSize: 14, fontFamily: "PlusJakartaSans_600SemiBold", fontWeight: "600" as const, color: colors.text },
+  sub: { fontSize: 12, fontFamily: "PlusJakartaSans_400Regular", color: colors.textSecondary, marginTop: 2 },
 });
 
 function NumberPill({ label, number, highlight }: { label: string; number: string; highlight?: boolean }) {
@@ -1049,10 +1062,10 @@ const npStyles = StyleSheet.create({
   },
   hl: { borderColor: colors.primary + "60", backgroundColor: colors.primaryFaint },
   label: {
-    fontSize: 10, fontFamily: "Inter_500Medium", color: colors.textMuted,
+    fontSize: 10, fontFamily: "PlusJakartaSans_500Medium", color: colors.textMuted,
     textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3,
   },
-  number: { fontSize: 11, fontFamily: "Inter_600SemiBold", color: colors.text, textAlign: "center" },
+  number: { fontSize: 11, fontFamily: "PlusJakartaSans_600SemiBold", color: colors.text, textAlign: "center" },
   numberHl: { color: colors.primary },
 });
 
@@ -1072,24 +1085,24 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", marginBottom: 8,
   },
   groupName: {
-    flex: 1, fontSize: 20, fontFamily: "Inter_700Bold", fontWeight: "700" as const,
+    flex: 1, fontSize: 20, fontFamily: "PlusJakartaSans_700Bold", fontWeight: "700" as const,
     color: colors.text, letterSpacing: 0.5,
   },
-  hint: { fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textMuted, marginBottom: 14 },
+  hint: { fontSize: 12, fontFamily: "PlusJakartaSans_400Regular", color: colors.textMuted, marginBottom: 14 },
   msgHeaderRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 0 },
   copyMsgBtn: {
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: colors.surfaceElevated, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginTop: -4,
   },
-  copyMsgText: { fontSize: 12, fontFamily: "Inter_500Medium", color: colors.textSecondary },
+  copyMsgText: { fontSize: 12, fontFamily: "PlusJakartaSans_500Medium", color: colors.textSecondary },
   msgBox: { backgroundColor: colors.inputBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.border },
-  msgText: { fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary, lineHeight: 20 },
+  msgText: { fontSize: 13, fontFamily: "PlusJakartaSans_400Regular", color: colors.textSecondary, lineHeight: 20 },
   nextCard: {
     backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.border,
     padding: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between",
   },
   nextLeft: { flexDirection: "row", alignItems: "center", gap: 14, flex: 1 },
   nextIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primaryFaint, alignItems: "center", justifyContent: "center" },
-  nextTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", fontWeight: "600" as const, color: colors.text },
-  nextSub: { fontSize: 12, fontFamily: "Inter_400Regular", color: colors.textSecondary, marginTop: 2 },
+  nextTitle: { fontSize: 15, fontFamily: "PlusJakartaSans_600SemiBold", fontWeight: "600" as const, color: colors.text },
+  nextSub: { fontSize: 12, fontFamily: "PlusJakartaSans_400Regular", color: colors.textSecondary, marginTop: 2 },
 });

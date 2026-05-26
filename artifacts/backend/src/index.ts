@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express, { type ErrorRequestHandler } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import pinoHttp from "pino-http";
 import pino from "pino";
 import { env } from "./env.js";
@@ -13,10 +14,12 @@ import imagesRouter from "./routes/images.js";
 import whatsappRouter from "./routes/whatsapp.js";
 import notificationsRouter from "./routes/notifications.js";
 import { startWhatsAppWorker } from "./workers/whatsapp.js";
+import { redis } from "./lib/redis.js";
 
 const logger = pino({ level: "info" });
 const app = express();
 
+app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(pinoHttp({ logger }));
@@ -48,7 +51,15 @@ process.on("unhandledRejection", (reason) => {
   logger.error({ reason }, "Unhandled promise rejection");
 });
 
-app.listen(env.PORT, () => {
+const server = app.listen(env.PORT, () => {
   logger.info({ port: env.PORT }, "Backend server listening");
   startWhatsAppWorker();
+});
+
+process.on("SIGTERM", () => {
+  logger.info("SIGTERM received, shutting down gracefully");
+  server.close(() => {
+    redis.disconnect();
+    process.exit(0);
+  });
 });

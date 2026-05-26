@@ -53,8 +53,6 @@ export function AddEventForm({
     mutation.mutate();
   };
 
-  const charsLeft = MAX_CHARS - message.length;
-
   return (
     <View style={styles.card}>
       <Text style={styles.sectionTitle}>Add Update</Text>
@@ -101,10 +99,10 @@ export function AddEventForm({
         <Text
           style={[
             styles.charsLeft,
-            charsLeft < 200 && styles.charsLeftWarn,
+            message.length > MAX_CHARS - 200 && styles.charsLeftWarn,
           ]}
         >
-          {charsLeft}
+          {message.length}/{MAX_CHARS}
         </Text>
         <Pressable
           onPress={handleSubmit}
@@ -143,7 +141,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
     marginBottom: 12,
@@ -167,7 +165,7 @@ const styles = StyleSheet.create({
   },
   typeChipText: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.textSecondary,
   },
@@ -176,7 +174,7 @@ const styles = StyleSheet.create({
   },
   fixedType: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.textMuted,
     marginBottom: 12,
@@ -190,7 +188,7 @@ const styles = StyleSheet.create({
     padding: 12,
     color: colors.text,
     fontSize: 14,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     textAlignVertical: "top",
   },
   bottomRow: {
@@ -201,7 +199,7 @@ const styles = StyleSheet.create({
   },
   charsLeft: {
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
   },
   charsLeftWarn: {
@@ -218,13 +216,13 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.55 },
   submitText: {
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#fff",
   },
   error: {
     fontSize: 12,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.destructive,
     marginTop: 8,
   },

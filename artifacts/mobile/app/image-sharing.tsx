@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import * as IntentLauncher from "expo-intent-launcher";
 import { useRouter } from "expo-router";
@@ -292,7 +292,7 @@ const styles = StyleSheet.create({
   },
   primaryBadgeText: {
     fontSize: 9,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     color: "#fff",
     textTransform: "uppercase",
   },
@@ -354,12 +354,12 @@ const styles = StyleSheet.create({
   },
   toggleAllText: {
     fontSize: 14,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textSecondary,
   },
   vehicleTag: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     color: colors.primary,
     backgroundColor: colors.primaryFaint,
     paddingHorizontal: 8,
@@ -384,13 +384,13 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 18,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
   },
   emptyText: {
     fontSize: 14,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 21,
@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
   },
   emptyBtnText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     color: colors.primary,
   },
   footer: {
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
   },
   selectAllText: {
     fontSize: 12,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textSecondary,
   },
 });

@@ -67,6 +67,7 @@ export const eventTypeEnum = pgEnum("event_type", [
   "group_created",
   "group_failed",
   "message_sent",
+  "message_failed",
   "delivery_completed",
 ]);
 
@@ -90,6 +91,7 @@ export const users = pgTable("users", {
   ),
   pinHash: text("pin_hash"),
   pushToken: text("push_token"),
+  avatarKey: text("avatar_key"),
   isActive: boolean("is_active").notNull().default(true),
   lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

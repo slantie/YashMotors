@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -9,6 +10,7 @@ import { StatusBadge } from "./StatusBadge";
 interface CaseCardProps {
   item: CaseListItem;
   onPress: () => void;
+  showAdvisor?: boolean;
 }
 
 function timeAgo(value: string) {
@@ -21,74 +23,195 @@ function timeAgo(value: string) {
   return `${days}d ago`;
 }
 
-export function CaseCard({ item, onPress }: CaseCardProps) {
+function isOverdue(dueDate?: string | null, status?: string): boolean {
+  if (!dueDate || !status) return false;
+  if (["delivered", "cancelled"].includes(status)) return false;
+  try {
+    const due = new Date(dueDate);
+    if (isNaN(due.getTime())) return false;
+    return due.getTime() < Date.now();
+  } catch {
+    return false;
+  }
+}
+
+export function CaseCard({ item, onPress, showAdvisor }: CaseCardProps) {
+  const overdue = isOverdue(item.dueDate, item.internalStatus);
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.card,
+        overdue && styles.cardOverdue,
+        pressed && styles.pressed,
+      ]}
     >
-      <View style={styles.topRow}>
-        <Text style={styles.caseNumber}>{item.caseNumber}</Text>
-        <Text style={styles.time}>{timeAgo(item.updatedAt)}</Text>
-      </View>
-      <Text style={styles.vehicle}>{item.vehicleNumber}</Text>
-      <View style={styles.metaRow}>
+      {/* Thumbnail */}
+      {item.primaryImageUrl ? (
+        <Image
+          source={{ uri: item.primaryImageUrl }}
+          style={styles.thumb}
+          contentFit="cover"
+          transition={180}
+        />
+      ) : (
+        <View style={styles.thumbPlaceholder}>
+          <Feather name="image" size={20} color={colors.border} />
+        </View>
+      )}
+
+      {/* Info */}
+      <View style={styles.info}>
+        <View style={styles.topRow}>
+          <Text style={styles.caseNumber}>{item.caseNumber}</Text>
+          <View style={styles.topRight}>
+            {overdue && (
+              <View style={styles.overdueTag}>
+                <Feather name="alert-triangle" size={10} color="#B54708" />
+                <Text style={styles.overdueText}>Overdue</Text>
+              </View>
+            )}
+            <Text style={styles.time}>{timeAgo(item.updatedAt)}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.vehicle} numberOfLines={1}>
+          {item.vehicleNumber}
+        </Text>
         <Text style={styles.model} numberOfLines={1}>
           {item.carModel}
         </Text>
-        <Feather name="chevron-right" size={18} color={colors.textMuted} />
+
+        <View style={styles.bottomRow}>
+          <StatusBadge status={item.internalStatus} type="internal" />
+          {showAdvisor && item.advisorName ? (
+            <View style={styles.advisorTag}>
+              <Feather name="user" size={10} color={colors.primary} />
+              <Text style={styles.advisorText} numberOfLines={1}>
+                {item.advisorName}
+              </Text>
+            </View>
+          ) : null}
+        </View>
       </View>
-      <StatusBadge status={item.internalStatus} type="internal" />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     backgroundColor: colors.surface,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 14,
-    marginBottom: 10,
+    padding: 12,
+    overflow: "hidden",
   },
-  pressed: {
-    opacity: 0.78,
+  cardOverdue: {
+    borderColor: "#B54708" + "55",
+    backgroundColor: "#B54708" + "04",
   },
+  pressed: { opacity: 0.78 },
+
+  thumb: {
+    width: 104,
+    height: 104,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceElevated,
+    flexShrink: 0,
+  },
+  thumbPlaceholder: {
+    width: 104,
+    height: 104,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  info: { flex: 1, gap: 3 },
+
   topRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 2,
+  },
+  topRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  overdueTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "#B54708" + "15",
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  overdueText: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: "#B54708",
   },
   caseNumber: {
-    fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.primary,
+    fontVariant: ["tabular-nums"],
   },
   time: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
+    fontVariant: ["tabular-nums"],
   },
+
   vehicle: {
-    fontSize: 19,
-    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: colors.text,
-    marginBottom: 3,
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
+    fontVariant: ["tabular-nums"],
   },
   model: {
-    flex: 1,
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
+  },
+
+  bottomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 4,
+  },
+  advisorTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.primaryFaint,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  advisorText: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.primary,
+    maxWidth: 100,
   },
 });

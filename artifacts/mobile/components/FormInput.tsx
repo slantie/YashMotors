@@ -51,7 +51,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.textSecondary,
     letterSpacing: 0.5,
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   },
   optional: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
     textTransform: "lowercase",
     letterSpacing: 0,
@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     color: colors.text,
     fontSize: 16,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     paddingHorizontal: 14,
     paddingVertical: 14,
     minHeight: 52,
@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
   error: {
     fontSize: 12,
     color: colors.destructive,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     marginTop: 4,
   },
 });

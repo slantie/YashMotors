@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.textSecondary,
     letterSpacing: 0.5,
@@ -134,7 +134,7 @@ const styles = StyleSheet.create({
   },
   optional: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
   },
   grid: {
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   },
   optLabel: {
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
     marginBottom: 2,
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
   },
   optDate: {
     fontSize: 10,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
   },
   optDateSelected: {
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   error: {
     fontSize: 12,
     color: colors.destructive,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     marginTop: 6,
   },
 });

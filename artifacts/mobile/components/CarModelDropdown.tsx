@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.textSecondary,
     letterSpacing: 0.5,
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   },
   triggerText: {
     fontSize: 16,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.text,
     flex: 1,
   },
@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
   error: {
     fontSize: 12,
     color: colors.destructive,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     marginTop: 4,
   },
   modalRoot: {
@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
   },
   sheetTitle: {
     fontSize: 17,
-    fontFamily: "Inter_700Bold",
+    fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: colors.text,
     textAlign: "center",
@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: colors.text,
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     paddingVertical: 12,
   },
   item: {
@@ -277,12 +277,12 @@ const styles = StyleSheet.create({
   },
   itemText: {
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.text,
   },
   itemTextSelected: {
     color: colors.primary,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
   },
   separator: {
     height: StyleSheet.hairlineWidth,

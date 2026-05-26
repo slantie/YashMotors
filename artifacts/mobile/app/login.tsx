@@ -18,10 +18,7 @@ import colors from "@/constants/colors";
 import { AuthUser, useAuthStore } from "@/store/useAuthStore";
 
 function routeForUser(user: AuthUser): string {
-  if (user.role === "superadmin" || user.role === "admin") return "/dashboard";
-  if (user.role === "advisor") return "/advisor-home";
-  if (user.role === "technician") return "/technician-home";
-  return "/dashboard";
+  return "/(tabs)";
 }
 
 export default function LoginScreen() {
@@ -191,14 +188,14 @@ const styles = StyleSheet.create({
   },
   appName: {
     fontSize: 26,
-    fontFamily: "Inter_700Bold",
+    fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: colors.text,
     letterSpacing: 0.3,
   },
   orgName: {
     fontSize: 14,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
   },
   form: {
@@ -209,7 +206,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.textSecondary,
     textTransform: "uppercase",
@@ -223,7 +220,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.inputBg,
     color: colors.text,
     fontSize: 18,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     paddingHorizontal: 16,
     letterSpacing: 1,
@@ -246,7 +243,7 @@ const styles = StyleSheet.create({
   },
   error: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.destructive,
     textAlign: "center",
@@ -264,7 +261,7 @@ const styles = StyleSheet.create({
   loginBtnDisabled: { opacity: 0.42 },
   loginText: {
     fontSize: 16,
-    fontFamily: "Inter_700Bold",
+    fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: "#fff",
     letterSpacing: 0.3,

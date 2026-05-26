@@ -493,7 +493,7 @@ const primaryStyles = StyleSheet.create({
   labelRow: { flexDirection: "row", marginBottom: 8 },
   label: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.textSecondary,
     letterSpacing: 0.5,
@@ -556,17 +556,17 @@ const primaryStyles = StyleSheet.create({
   },
   iconLabel: {
     fontSize: 11,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.primary,
   },
   placeholderText: {
     fontSize: 14,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.text,
   },
   placeholderSub: {
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
   },
 });
@@ -581,7 +581,7 @@ const gridStyles = StyleSheet.create({
   },
   label: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.textSecondary,
     letterSpacing: 0.5,
@@ -589,7 +589,7 @@ const gridStyles = StyleSheet.create({
   },
   count: {
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
   },
   scroll: {
@@ -655,7 +655,7 @@ const batchStyles = StyleSheet.create({
   },
   permissionTitle: {
     fontSize: 17,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
   },
@@ -667,7 +667,7 @@ const batchStyles = StyleSheet.create({
   },
   permissionBtnText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#fff",
   },
@@ -694,7 +694,7 @@ const batchStyles = StyleSheet.create({
   },
   counter: {
     fontSize: 15,
-    fontFamily: "Inter_700Bold",
+    fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: "#fff",
   },
@@ -712,7 +712,7 @@ const batchStyles = StyleSheet.create({
   },
   doneText: {
     fontSize: 13,
-    fontFamily: "Inter_700Bold",
+    fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: "#fff",
   },
@@ -769,13 +769,13 @@ const batchStyles = StyleSheet.create({
   },
   helperText: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "rgba(255,255,255,0.82)",
   },
   clearText: {
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#fff",
   },

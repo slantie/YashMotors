@@ -26,7 +26,7 @@ function roleLabel(role?: string) {
   return ROLE_LABELS[role] ?? role.split("_").map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
 }
 
-export default function SettingsScreen() {
+export default function SettingsTab() {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
@@ -107,7 +107,7 @@ export default function SettingsScreen() {
       Alert.alert("Error", "All fields are required.");
       return;
     }
-    if (newPin.length !== 4 || !/^\d{4}$/.test(newPin)) {
+    if (!/^\d{4}$/.test(newPin)) {
       Alert.alert("Error", "New PIN must be exactly 4 digits.");
       return;
     }
@@ -170,7 +170,7 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.root}>
-      <AppHeader title="Settings" subtitle="Profile" showBack />
+      <AppHeader title="Settings" subtitle="Profile" />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}

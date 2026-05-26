@@ -7,6 +7,7 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -26,8 +27,8 @@ function greeting() {
   return "Good evening";
 }
 
-function waitingTime(createdAt: string): string {
-  const ms = Date.now() - new Date(createdAt).getTime();
+function waitingTime(updatedAt: string): string {
+  const ms = Date.now() - new Date(updatedAt).getTime();
   const hrs = Math.floor(ms / (1000 * 60 * 60));
   const days = Math.floor(hrs / 24);
   if (days > 0) return `${days}d`;
@@ -41,53 +42,75 @@ const ACTIVE_STATUSES: InternalStatus[] = [
 ];
 
 const STATUS_COLORS: Partial<Record<InternalStatus, string>> = {
-  intake: "#6366F1",
-  in_progress: "#B54708",
-  awaiting_parts: "#C05621",
-  denting: "#7C3AED",
-  painting: "#0284C7",
-  polishing: "#0891B2",
-  electrical: "#D97706",
-  washing: "#059669",
+  intake:        "#6366F1",
+  in_progress:   "#B54708",
+  awaiting_parts:"#C05621",
+  denting:       "#7C3AED",
+  painting:      "#0284C7",
+  polishing:     "#0891B2",
+  electrical:    "#D97706",
+  washing:       "#059669",
   quality_check: "#8B5CF6",
-  ready: "#16A34A",
+  ready:         "#16A34A",
 };
 
 const STATUS_LABELS: Partial<Record<InternalStatus, string>> = {
-  intake: "Intake",
-  in_progress: "In Progress",
-  awaiting_parts: "Awaiting Parts",
-  denting: "Denting",
-  painting: "Painting",
-  polishing: "Polishing",
-  electrical: "Electrical",
-  washing: "Washing",
+  intake:        "Intake",
+  in_progress:   "In Progress",
+  awaiting_parts:"Awaiting Parts",
+  denting:       "Denting",
+  painting:      "Painting",
+  polishing:     "Polishing",
+  electrical:    "Electrical",
+  washing:       "Washing",
   quality_check: "QC",
-  ready: "Ready",
+  ready:         "Ready",
 };
+
+const FILTER_CHIPS: { label: string; value: string | null }[] = [
+  { label: "All", value: null },
+  { label: "In Progress", value: "in_progress" },
+  { label: "Awaiting Parts", value: "awaiting_parts" },
+  { label: "Ready", value: "ready" },
+];
 
 export default function TechnicianHomeScreen() {
   const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
 
   const casesQuery = useQuery({ queryKey: ["cases"], queryFn: fetchCases });
 
+  const allActive = useMemo(
+    () => (casesQuery.data ?? []).filter((c) => ACTIVE_STATUSES.includes(c.internalStatus)),
+    [casesQuery.data]
+  );
+
+  const summary = useMemo(() => ({
+    total:    allActive.length,
+    ready:    allActive.filter((c) => c.internalStatus === "ready").length,
+    working:  allActive.filter((c) => ["in_progress", "denting", "painting", "polishing", "electrical", "washing", "quality_check"].includes(c.internalStatus)).length,
+  }), [allActive]);
+
   const cases = useMemo(() => {
-    const active = (casesQuery.data ?? []).filter((c) =>
-      ACTIVE_STATUSES.includes(c.internalStatus)
+    let list = filterStatus
+      ? allActive.filter((c) => c.internalStatus === filterStatus)
+      : allActive;
+
+    list = [...list].sort(
+      (a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()
     );
-    active.sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    );
-    if (!search.trim()) return active;
+
+    if (!search.trim()) return list;
     const q = search.trim().toUpperCase();
-    return active.filter(
+    return list.filter(
       (c) =>
         c.vehicleNumber.toUpperCase().includes(q) ||
-        c.carModel.toUpperCase().includes(q)
+        c.caseNumber.toUpperCase().includes(q) ||
+        (c.carModel ?? "").toUpperCase().includes(q)
     );
-  }, [casesQuery.data, search]);
+  }, [allActive, search, filterStatus]);
 
   return (
     <View style={styles.root}>
@@ -101,12 +124,33 @@ export default function TechnicianHomeScreen() {
         }
       />
 
+      {/* Summary strip */}
+      {!casesQuery.isLoading && (
+        <View style={styles.summaryStrip}>
+          <View style={styles.summaryItem}>
+            <View style={[styles.summaryDot, { backgroundColor: colors.primary }]} />
+            <Text style={styles.summaryText}>{summary.total} active</Text>
+          </View>
+          <Text style={styles.summarySep}>·</Text>
+          <View style={styles.summaryItem}>
+            <View style={[styles.summaryDot, { backgroundColor: "#B54708" }]} />
+            <Text style={styles.summaryText}>{summary.working} in work</Text>
+          </View>
+          <Text style={styles.summarySep}>·</Text>
+          <View style={styles.summaryItem}>
+            <View style={[styles.summaryDot, { backgroundColor: colors.success }]} />
+            <Text style={styles.summaryText}>{summary.ready} ready</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Search */}
       <View style={styles.searchWrap}>
         <Feather name="search" size={16} color={colors.textMuted} />
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search plate or model..."
+          placeholder="Search plate, case #, model..."
           placeholderTextColor={colors.textMuted}
           style={styles.searchInput}
           autoCorrect={false}
@@ -120,6 +164,26 @@ export default function TechnicianHomeScreen() {
         )}
       </View>
 
+      {/* Filter chips */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipsContainer}
+        style={styles.chipsScroll}
+      >
+        {FILTER_CHIPS.map((chip) => (
+          <Pressable
+            key={chip.value ?? "all"}
+            onPress={() => setFilterStatus(chip.value)}
+            style={[styles.chip, filterStatus === chip.value && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, filterStatus === chip.value && styles.chipTextActive]}>
+              {chip.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
       {casesQuery.isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
@@ -127,7 +191,7 @@ export default function TechnicianHomeScreen() {
       ) : casesQuery.isError ? (
         <View style={styles.center}>
           <Text style={styles.errorText}>Could not load cases</Text>
-          <Pressable onPress={casesQuery.refetch} style={styles.retryBtn}>
+          <Pressable onPress={() => { void casesQuery.refetch(); }} style={styles.retryBtn}>
             <Text style={styles.retryText}>Retry</Text>
           </Pressable>
         </View>
@@ -139,10 +203,7 @@ export default function TechnicianHomeScreen() {
             <TechCaseRow
               item={item}
               onPress={() =>
-                router.push({
-                  pathname: "/(cases)/[caseNumber]",
-                  params: { caseNumber: item.caseNumber },
-                })
+                router.push({ pathname: "/(cases)/[caseNumber]", params: { caseNumber: item.caseNumber } })
               }
             />
           )}
@@ -163,12 +224,14 @@ export default function TechnicianHomeScreen() {
             <View style={styles.emptyBlock}>
               <Feather name="check-circle" size={34} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>
-                {search ? "No matches" : "No active cases"}
+                {search ? "No matches" : filterStatus ? "No cases here" : "All clear"}
               </Text>
               <Text style={styles.emptyText}>
                 {search
                   ? "Try a different search term."
-                  : "All vehicles have been delivered."}
+                  : filterStatus
+                  ? "Try a different filter."
+                  : "No active cases right now."}
               </Text>
             </View>
           }
@@ -181,11 +244,19 @@ export default function TechnicianHomeScreen() {
 function TechCaseRow({ item, onPress }: { item: CaseListItem; onPress: () => void }) {
   const color = STATUS_COLORS[item.internalStatus] ?? colors.textMuted;
   const label = STATUS_LABELS[item.internalStatus] ?? item.internalStatus;
-  const wait = waitingTime(item.createdAt);
+  const wait = waitingTime(item.updatedAt);
 
   return (
-    <Pressable onPress={onPress} style={styles.row}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.row, { borderLeftColor: color }, pressed && styles.rowPressed]}
+    >
       <View style={styles.rowLeft}>
+        <View style={styles.caseNumRow}>
+          <View style={[styles.caseNumBadge, { backgroundColor: color + "15", borderColor: color + "40" }]}>
+            <Text style={[styles.caseNumText, { color }]}>{item.caseNumber}</Text>
+          </View>
+        </View>
         <Text style={styles.vehicleNum}>{item.vehicleNumber}</Text>
         <Text style={styles.carModel}>{item.carModel}</Text>
         {item.advisorName ? (
@@ -197,7 +268,7 @@ function TechCaseRow({ item, onPress }: { item: CaseListItem; onPress: () => voi
           <View style={[styles.dot, { backgroundColor: color }]} />
           <Text style={[styles.statusText, { color }]}>{label}</Text>
         </View>
-        <Text style={styles.waitText}>{wait} waiting</Text>
+        <Text style={styles.waitText}>{wait} ago</Text>
         <Feather name="chevron-right" size={16} color={colors.textMuted} />
       </View>
     </Pressable>
@@ -212,39 +283,70 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     backgroundColor: colors.primaryFaint,
   },
-  errorText: { fontSize: 15, fontFamily: "Inter_400Regular", color: colors.text, marginBottom: 12 },
-  retryBtn: {
-    paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10,
-    backgroundColor: colors.primaryFaint,
+
+  summaryStrip: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 16, paddingVertical: 8, gap: 8,
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  retryText: {
-    fontSize: 14, fontFamily: "Inter_600SemiBold", fontWeight: "600" as const, color: colors.primary,
-  },
+  summaryItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  summaryDot: { width: 7, height: 7, borderRadius: 4 },
+  summaryText: { fontSize: 12, fontFamily: "PlusJakartaSans_500Medium", color: colors.textSecondary },
+  summarySep: { fontSize: 12, color: colors.border, paddingHorizontal: 2 },
+
+  errorText: { fontSize: 15, fontFamily: "PlusJakartaSans_400Regular", color: colors.text, marginBottom: 12 },
+  retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: colors.primaryFaint },
+  retryText: { fontSize: 14, fontFamily: "PlusJakartaSans_600SemiBold", fontWeight: "600" as const, color: colors.primary },
+
   searchWrap: {
     flexDirection: "row", alignItems: "center",
-    marginHorizontal: 16, marginTop: 12, marginBottom: 4,
+    marginHorizontal: 16, marginTop: 10, marginBottom: 2,
     backgroundColor: colors.surface, borderRadius: 12,
     borderWidth: 1, borderColor: colors.border,
     paddingHorizontal: 12, paddingVertical: 10, gap: 8,
   },
   searchInput: {
-    flex: 1, fontSize: 14, fontFamily: "Inter_400Regular",
+    flex: 1, fontSize: 14, fontFamily: "PlusJakartaSans_400Regular",
     color: colors.text, padding: 0,
   },
-  list: { padding: 16, gap: 8 },
+
+  chipsScroll: { maxHeight: 42 },
+  chipsContainer: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+  chip: {
+    borderRadius: 20, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surface, paddingHorizontal: 14, paddingVertical: 7,
+  },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { fontSize: 12, fontFamily: "PlusJakartaSans_500Medium", color: colors.textSecondary },
+  chipTextActive: { color: "#fff" },
+
+  list: { padding: 12, gap: 8 },
   listEmpty: { flexGrow: 1 },
+
   row: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: colors.surface, borderRadius: 14,
     borderWidth: 1, borderColor: colors.border,
+    borderLeftWidth: 3,
     paddingVertical: 14, paddingHorizontal: 14, gap: 12,
   },
+  rowPressed: { opacity: 0.75 },
+
   rowLeft: { flex: 1, gap: 3 },
-  vehicleNum: {
-    fontSize: 17, fontFamily: "Inter_700Bold", fontWeight: "700" as const, color: colors.text,
+  caseNumRow: { marginBottom: 3 },
+  caseNumBadge: {
+    alignSelf: "flex-start",
+    borderWidth: 1, borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 2,
   },
-  carModel: { fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary },
-  advisorText: { fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textMuted, marginTop: 1 },
+  caseNumText: { fontSize: 10, fontFamily: "PlusJakartaSans_600SemiBold", fontWeight: "600" as const },
+
+  vehicleNum: { fontSize: 17, fontFamily: "PlusJakartaSans_700Bold", fontWeight: "700" as const, color: colors.text },
+  carModel: { fontSize: 13, fontFamily: "PlusJakartaSans_400Regular", color: colors.textSecondary },
+  advisorText: { fontSize: 11, fontFamily: "PlusJakartaSans_400Regular", color: colors.textMuted, marginTop: 1 },
+
   rowRight: { alignItems: "flex-end", gap: 6 },
   statusPill: {
     flexDirection: "row", alignItems: "center", gap: 5,
@@ -252,15 +354,10 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1,
   },
   dot: { width: 6, height: 6, borderRadius: 3 },
-  statusText: { fontSize: 11, fontFamily: "Inter_500Medium" },
-  waitText: { fontSize: 11, fontFamily: "Inter_400Regular", color: colors.textMuted },
-  emptyBlock: {
-    flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 24,
-  },
-  emptyTitle: {
-    fontSize: 17, fontFamily: "Inter_600SemiBold", fontWeight: "600" as const, color: colors.text,
-  },
-  emptyText: {
-    fontSize: 13, fontFamily: "Inter_400Regular", color: colors.textSecondary, textAlign: "center",
-  },
+  statusText: { fontSize: 11, fontFamily: "PlusJakartaSans_500Medium" },
+  waitText: { fontSize: 11, fontFamily: "PlusJakartaSans_400Regular", color: colors.textMuted },
+
+  emptyBlock: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 24 },
+  emptyTitle: { fontSize: 17, fontFamily: "PlusJakartaSans_600SemiBold", fontWeight: "600" as const, color: colors.text },
+  emptyText: { fontSize: 13, fontFamily: "PlusJakartaSans_400Regular", color: colors.textSecondary, textAlign: "center" },
 });

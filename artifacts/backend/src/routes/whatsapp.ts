@@ -84,28 +84,36 @@ router.post(
       res.status(400).json({ error: "Case has no customer phone. Update case first." }); return;
     }
 
-    // Mark pending before enqueuing so concurrent calls see the lock immediately
+    // Enqueue FIRST — if Redis is down, we never commit the status change and the
+    // client gets a 503 they can retry, rather than getting stuck in "pending" forever.
+    let job;
+    try {
+      job = await waQueue.add(
+        "create_group",
+        {
+          type: "create_group",
+          caseId: c.id,
+          caseNumber: c.caseNumber,
+          groupName,
+          customerPhone: c.customerPhone,
+          advisorPhone: parsed.data.advisorPhone,
+          initialMessage: parsed.data.initialMessage,
+          requestedBy: userId,
+        },
+        {
+          attempts: 3,
+          backoff: { type: "exponential", delay: 15000 }, // 15s, 30s, 60s
+        }
+      );
+    } catch (queueErr) {
+      console.error("[WA] Failed to enqueue create_group job:", queueErr);
+      res.status(503).json({ error: "Queue temporarily unavailable. Please try again." });
+      return;
+    }
+
     await db.update(cases)
       .set({ whatsappStatus: "pending", updatedAt: new Date() })
       .where(eq(cases.id, c.id));
-
-    const job = await waQueue.add(
-      "create_group",
-      {
-        type: "create_group",
-        caseId: c.id,
-        caseNumber: c.caseNumber,
-        groupName,
-        customerPhone: c.customerPhone,
-        advisorPhone: parsed.data.advisorPhone,
-        initialMessage: parsed.data.initialMessage,
-        requestedBy: userId,
-      },
-      {
-        attempts: 3,
-        backoff: { type: "exponential", delay: 15000 }, // 15s, 30s, 60s
-      }
-    );
 
     res.status(202).json({ jobId: job.id, whatsappStatus: "pending", groupName });
   }

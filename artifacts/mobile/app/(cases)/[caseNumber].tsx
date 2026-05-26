@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
 import * as ImagePickerLib from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
@@ -8,8 +9,10 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -21,7 +24,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PinchGestureHandler, State } from "react-native-gesture-handler";
+
 import { AppHeader } from "@/components/AppHeader";
+import { Toast } from "@/components/Toast";
 import { StatusBadge, statusLabel } from "@/components/cases/StatusBadge";
 import { AddEventForm } from "@/components/cases/AddEventForm";
 import { ImageThumbnail } from "@/components/cases/ImageThumbnail";
@@ -34,6 +40,7 @@ import {
   notifyAdvisor,
   updateCustomerStatus,
   updateInternalStatus,
+  type CaseDetail,
 } from "@/services/cases";
 import {
   confirmImages,
@@ -46,12 +53,18 @@ import {
 } from "@/services/caseEvents";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useCaseImages } from "@/hooks/useCaseImages";
+import { useToast } from "@/hooks/useToast";
 import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
 import {
   createWhatsAppGroup,
   sendWhatsAppMessage,
+  type CreateGroupResult,
 } from "@/services/whatsapp";
 import * as Clipboard from "expo-clipboard";
+import * as FileSystem from "expo-file-system/legacy";
+import * as IntentLauncher from "expo-intent-launcher";
+import * as MediaLibrary from "expo-media-library";
+import * as Sharing from "expo-sharing";
 import { formatCaseMessage } from "@/utils/messageFormatter";
 
 const INTERNAL_STATUSES: InternalStatus[] = [
@@ -123,7 +136,8 @@ export default function CaseDetailScreen() {
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [imageFolder, setImageFolder] = useState<"intake" | "repairs">(role === "technician" ? "repairs" : "intake");
-  const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const [viewerState, setViewerState] = useState<{ images: CaseEventImage[]; currentIndex: number } | null>(null);
+  const [downloadingImage, setDownloadingImage] = useState(false);
   const canEditCase = isPrivileged;
   const canUseWhatsApp = isPrivileged;
   const [waInitiated, setWaInitiated] = useState(false);
@@ -131,6 +145,16 @@ export default function CaseDetailScreen() {
   const [waCreateOpen, setWaCreateOpen] = useState(false);
   const [waSendOpen, setWaSendOpen] = useState(false);
   const [waSendMsg, setWaSendMsg] = useState("");
+  const { message: toastMsg, visible: toastVisible, showToast } = useToast();
+  const scaleAnim = React.useRef(new Animated.Value(1)).current;
+  const scaleBase = React.useRef(1);
+  const lastScale = React.useRef(1);
+
+  const resetScale = () => {
+    scaleBase.current = 1;
+    lastScale.current = 1;
+    scaleAnim.setValue(1);
+  };
 
   const waStatusQuery = useWhatsAppStatus(caseNumber, canUseWhatsApp);
 
@@ -210,9 +234,10 @@ export default function CaseDetailScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setWaSendOpen(false);
       setWaSendMsg("");
+      queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
       Alert.alert(
         "Message queued",
-        "Your update will be sent to the WhatsApp group."
+        "Your update will be sent to the group. Check the timeline to confirm delivery."
       );
     },
     onError: (err) => {
@@ -222,6 +247,10 @@ export default function CaseDetailScreen() {
       );
     },
   });
+
+  React.useEffect(() => {
+    if (viewerState) resetScale();
+  }, [viewerState ? viewerState.currentIndex : null]);
 
   const [submitDone, setSubmitDone] = useState(false);
 
@@ -278,11 +307,43 @@ export default function CaseDetailScreen() {
     );
   };
 
+  const isExpoGo = Constants.appOwnership === "expo";
+
+  const handleDownloadImage = async (image: CaseEventImage) => {
+    if (isExpoGo) {
+      Alert.alert(
+        "Dev Build Required",
+        "Saving to the photo library is not supported in Expo Go due to Android 13+ permission restrictions. Build a development build with EAS to enable this feature.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    setDownloadingImage(true);
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission denied", "Allow photo library access in Settings to save images.");
+        return;
+      }
+      const ext = image.url.split("?")[0].split(".").pop() ?? "jpg";
+      const localUri = `${FileSystem.cacheDirectory}ym_${image.id}_${Date.now()}.${ext}`;
+      const { uri } = await FileSystem.downloadAsync(image.url, localUri);
+      await MediaLibrary.saveToLibraryAsync(uri);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Saved", `"${image.filename}" saved to photo library.`);
+    } catch (e) {
+      Alert.alert("Download failed", e instanceof Error ? e.message : "Could not save image.");
+    } finally {
+      setDownloadingImage(false);
+    }
+  };
+
   const data = caseQuery.data;
 
   return (
     <View style={styles.root}>
       <AppHeader title={caseNumber ?? "Case"} subtitle={data?.vehicleNumber} showBack />
+      <Toast message={toastMsg} visible={toastVisible} />
       {caseQuery.isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
@@ -348,7 +409,7 @@ export default function CaseDetailScreen() {
                   caseNumber={caseNumber}
                   folder={imageFolder}
                   role={role}
-                  onImageView={(url) => setViewerImage(url)}
+                  onImageView={(imgs, idx) => setViewerState({ images: imgs, currentIndex: idx })}
                 />
               </View>
 
@@ -373,7 +434,17 @@ export default function CaseDetailScreen() {
                       <View key={event.id} style={styles.eventRow}>
                         <View style={styles.eventDot} />
                         <View style={styles.eventBody}>
-                          <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
+                          <View style={styles.eventHeader}>
+                            <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
+                            {event.createdByName ? (
+                              <Text style={styles.eventCreator} numberOfLines={1}>{event.createdByName}</Text>
+                            ) : null}
+                          </View>
+                          {(event.metadata?.from != null || event.metadata?.to != null) && (
+                            <Text style={styles.eventFromTo}>
+                              {statusLabel(String(event.metadata?.from ?? ""))} → {statusLabel(String(event.metadata?.to ?? ""))}
+                            </Text>
+                          )}
                           {event.message ? <Text style={styles.eventMsg}>{event.message}</Text> : null}
                           <Text style={styles.eventTime}>{formatDate(event.createdAt)}</Text>
                         </View>
@@ -405,6 +476,21 @@ export default function CaseDetailScreen() {
             </>
           ) : (
             <>
+              {/* WhatsApp */}
+              {canUseWhatsApp && data && (
+                <WhatsAppCard
+                  data={data}
+                  waStatusQuery={waStatusQuery}
+                  waInitiated={waInitiated}
+                  setWaInitiated={setWaInitiated}
+                  createGroupMutation={createGroupMutation}
+                  setWaSendOpen={setWaSendOpen}
+                  setWaCreateOpen={setWaCreateOpen}
+                  setWaInitialMsg={setWaInitialMsg}
+                  showToast={showToast}
+                />
+              )}
+
               {/* Info */}
               <View style={styles.card}>
                 <Info label="KM Count" value={data.kmCount} />
@@ -462,7 +548,17 @@ export default function CaseDetailScreen() {
                     <View key={event.id} style={styles.eventRow}>
                       <View style={styles.eventDot} />
                       <View style={styles.eventBody}>
-                        <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
+                        <View style={styles.eventHeader}>
+                          <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
+                          {event.createdByName ? (
+                            <Text style={styles.eventCreator} numberOfLines={1}>{event.createdByName}</Text>
+                          ) : null}
+                        </View>
+                        {(event.metadata?.from != null || event.metadata?.to != null) && (
+                          <Text style={styles.eventFromTo}>
+                            {statusLabel(String(event.metadata?.from ?? ""))} → {statusLabel(String(event.metadata?.to ?? ""))}
+                          </Text>
+                        )}
                         {event.message ? <Text style={styles.eventMsg}>{event.message}</Text> : null}
                         <Text style={styles.eventTime}>{formatDate(event.createdAt)}</Text>
                       </View>
@@ -498,14 +594,14 @@ export default function CaseDetailScreen() {
                     caseNumber={caseNumber}
                     folder="intake"
                     role={role}
-                    onImageView={(url) => setViewerImage(url)}
+                    onImageView={(imgs, idx) => setViewerState({ images: imgs, currentIndex: idx })}
                   />
                 ) : (
                   <ImagesGrid
                     caseNumber={caseNumber}
                     folder="repairs"
                     role={role}
-                    onImageView={(url) => setViewerImage(url)}
+                    onImageView={(imgs, idx) => setViewerState({ images: imgs, currentIndex: idx })}
                   />
                 )}
               </View>
@@ -527,83 +623,7 @@ export default function CaseDetailScreen() {
                 </Pressable>
               )}
 
-              {canUseWhatsApp && data && (
-                <View style={styles.card}>
-                  <Text style={styles.sectionTitle}>WhatsApp Group</Text>
-                  {waStatusQuery.isLoading && !waStatusQuery.data ? (
-                    <ActivityIndicator color={colors.primary} style={styles.waLoading} />
-                  ) : waStatusQuery.data?.whatsappStatus === "created" ? (
-                    <View>
-                      <View style={styles.waSuccessRow}>
-                        <Feather name="check-circle" size={16} color={colors.success} />
-                        <Text style={styles.waSuccessText}>Group Created</Text>
-                      </View>
-                      {waStatusQuery.data.whatsappInviteLink ? (
-                        <View style={styles.waInviteRow}>
-                          <Text style={styles.waInviteLabel}>Invite Link</Text>
-                          <View style={styles.waInviteLinkRow}>
-                            <Text style={styles.waInviteLink} numberOfLines={1}>
-                              {waStatusQuery.data.whatsappInviteLink}
-                            </Text>
-                            <Pressable
-                              onPress={() => {
-                                Clipboard.setStringAsync(waStatusQuery.data!.whatsappInviteLink!);
-                                Alert.alert("Copied");
-                              }}
-                              style={styles.waCopyBtn}
-                            >
-                              <Feather name="copy" size={14} color={colors.primary} />
-                            </Pressable>
-                          </View>
-                        </View>
-                      ) : null}
-                      <Pressable onPress={() => setWaSendOpen(true)} style={styles.waSendBtn}>
-                        <Feather name="send" size={14} color="#fff" />
-                        <Text style={styles.waSendText}>Send Update</Text>
-                      </Pressable>
-                    </View>
-                  ) : waStatusQuery.data?.whatsappStatus === "failed" ? (
-                    <View>
-                      <View style={styles.waFailRow}>
-                        <Feather name="alert-circle" size={16} color={colors.destructive} />
-                        <Text style={styles.waFailText}>Group creation failed</Text>
-                      </View>
-                      <Pressable
-                        onPress={() => {
-                          setWaInitiated(true);
-                          createGroupMutation.mutate({ phone: data.advisor.phone, msg: formatCaseMessage(data) });
-                        }}
-                        style={styles.waRetryBtn}
-                      >
-                        <Text style={styles.waRetryText}>Retry</Text>
-                      </Pressable>
-                    </View>
-                  ) : waStatusQuery.data?.whatsappStatus === "manual_required" ? (
-                    <View style={styles.waFailRow}>
-                      <Feather name="help-circle" size={16} color="#B54708" />
-                      <Text style={styles.waManualText}>Manual action required</Text>
-                    </View>
-                  ) : waInitiated ||
-                    waStatusQuery.data?.whatsappStatus === "pending" ||
-                    waStatusQuery.data?.whatsappStatus === "retrying" ? (
-                    <View style={styles.waCreatingRow}>
-                      <ActivityIndicator color={colors.primary} size="small" />
-                      <Text style={styles.waCreatingText}>Creating group...</Text>
-                    </View>
-                  ) : (
-                    <View>
-                      <Text style={styles.waNoGroupText}>No WhatsApp group created yet</Text>
-                      <Pressable
-                        onPress={() => { setWaInitialMsg(data ? formatCaseMessage(data) : ""); setWaCreateOpen(true); }}
-                        style={styles.waCreateBtn}
-                      >
-                        <Feather name="users" size={14} color="#fff" />
-                        <Text style={styles.waCreateText}>Create WhatsApp Group</Text>
-                      </Pressable>
-                    </View>
-                  )}
-                </View>
-              )}
+
             </>
           )}
         </ScrollView>
@@ -739,30 +759,105 @@ export default function CaseDetailScreen() {
       </Modal>
 
       <Modal
-        visible={!!viewerImage}
+        visible={!!viewerState}
         transparent
         animationType="fade"
-        onRequestClose={() => setViewerImage(null)}
+        statusBarTranslucent
+        onRequestClose={() => setViewerState(null)}
       >
-        <Pressable
-          style={styles.viewerBackdrop}
-          onPress={() => setViewerImage(null)}
-        >
-          <Pressable
-            style={styles.viewerClose}
-            onPress={() => setViewerImage(null)}
-            hitSlop={12}
-          >
-            <Feather name="x" size={24} color="#fff" />
-          </Pressable>
-          {viewerImage && (
-            <Image
-              source={{ uri: viewerImage }}
-              style={styles.viewerImage}
-              resizeMode="contain"
-            />
-          )}
-        </Pressable>
+        {viewerState && (() => {
+          const img = viewerState.images[viewerState.currentIndex];
+          const total = viewerState.images.length;
+          const idx = viewerState.currentIndex;
+          const hasPrev = idx > 0;
+          const hasNext = idx < total - 1;
+          return (
+            <View style={styles.viewerBackdrop}>
+              {/* Header */}
+              <View style={styles.viewerHeader}>
+                <Pressable style={styles.viewerHeaderBtn} onPress={() => setViewerState(null)} hitSlop={12}>
+                  <Feather name="x" size={22} color="#fff" />
+                </Pressable>
+                <Text style={styles.viewerCounter}>{idx + 1} / {total}</Text>
+                <Pressable
+                  style={[styles.viewerHeaderBtn, downloadingImage && styles.disabled]}
+                  onPress={() => handleDownloadImage(img)}
+                  disabled={downloadingImage}
+                  hitSlop={12}
+                >
+                  {downloadingImage ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Feather name="download" size={22} color="#fff" />
+                  )}
+                </Pressable>
+              </View>
+
+              {/* Image */}
+              <View style={styles.viewerImageArea}>
+                <PinchGestureHandler
+                  onGestureEvent={(e) => {
+                    const s = Math.max(1, Math.min(scaleBase.current * e.nativeEvent.scale, 5));
+                    scaleAnim.setValue(s);
+                  }}
+                  onHandlerStateChange={(e) => {
+                    if (e.nativeEvent.oldState === State.ACTIVE) {
+                      scaleBase.current = Math.max(1, Math.min(scaleBase.current * e.nativeEvent.scale, 5));
+                      lastScale.current = 1;
+                      scaleAnim.setValue(scaleBase.current);
+                    }
+                  }}
+                >
+                  <Animated.View style={{ flex: 1, transform: [{ scale: scaleAnim }] }}>
+                    <Image
+                      source={{ uri: img.url }}
+                      style={styles.viewerImage}
+                      resizeMode="contain"
+                    />
+                  </Animated.View>
+                </PinchGestureHandler>
+                {hasPrev && (
+                  <Pressable
+                    style={[styles.viewerNavBtn, styles.viewerNavLeft]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setViewerState((v) => v ? { ...v, currentIndex: v.currentIndex - 1 } : v);
+                    }}
+                    hitSlop={8}
+                  >
+                    <Feather name="chevron-left" size={30} color="#fff" />
+                  </Pressable>
+                )}
+                {hasNext && (
+                  <Pressable
+                    style={[styles.viewerNavBtn, styles.viewerNavRight]}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      setViewerState((v) => v ? { ...v, currentIndex: v.currentIndex + 1 } : v);
+                    }}
+                    hitSlop={8}
+                  >
+                    <Feather name="chevron-right" size={30} color="#fff" />
+                  </Pressable>
+                )}
+              </View>
+
+              {/* Footer metadata */}
+              <View style={styles.viewerFooter}>
+                {img.isPrimary && (
+                  <View style={styles.viewerPrimaryBadge}>
+                    <Feather name="star" size={10} color="#fff" />
+                    <Text style={styles.viewerPrimaryText}>Primary</Text>
+                  </View>
+                )}
+                <Text style={styles.viewerFilename} numberOfLines={1}>{img.filename}</Text>
+                <Text style={styles.viewerMeta}>
+                  {img.folder === "intake" ? "Intake" : "Repairs"} · {formatDate(img.createdAt)}
+                </Text>
+              </View>
+            </View>
+          );
+        })()}
       </Modal>
 
       <Modal
@@ -939,6 +1034,7 @@ function StatusPickerModal({
         <View style={styles.sheet}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>{title}</Text>
+          <Text style={styles.currentStatus}>Currently: {statusLabel(selected)}</Text>
           <View style={styles.statusGrid}>
             {statuses.map((status) => (
               <Pressable
@@ -979,6 +1075,134 @@ function StatusPickerModal({
         </View>
       </View>
     </Modal>
+  );
+}
+
+function WhatsAppCard({
+  data,
+  waStatusQuery,
+  waInitiated,
+  setWaInitiated,
+  createGroupMutation,
+  setWaSendOpen,
+  setWaCreateOpen,
+  setWaInitialMsg,
+  showToast,
+}: {
+  data: CaseDetail;
+  waStatusQuery: ReturnType<typeof useWhatsAppStatus>;
+  waInitiated: boolean;
+  setWaInitiated: (v: boolean) => void;
+  createGroupMutation: UseMutationResult<CreateGroupResult, Error, { phone: string; msg?: string }>;
+  setWaSendOpen: (v: boolean) => void;
+  setWaCreateOpen: (v: boolean) => void;
+  setWaInitialMsg: (v: string) => void;
+  showToast: (msg: string) => void;
+}) {
+  return (
+    <View style={styles.card}>
+      <Text style={styles.sectionTitle}>WhatsApp Group</Text>
+      {waStatusQuery.isLoading && !waStatusQuery.data ? (
+        <ActivityIndicator color={colors.primary} style={styles.waLoading} />
+      ) : waStatusQuery.data?.whatsappStatus === "created" ? (
+        <View>
+          <View style={styles.waSuccessRow}>
+            <Feather name="check-circle" size={16} color={colors.success} />
+            <Text style={styles.waSuccessText}>Group Created</Text>
+          </View>
+          {waStatusQuery.data.whatsappInviteLink ? (
+            <View style={styles.waInviteRow}>
+              <Text style={styles.waInviteLabel}>Invite Link</Text>
+              <View style={styles.waInviteLinkRow}>
+                <Text style={styles.waInviteLink} numberOfLines={1}>
+                  {waStatusQuery.data.whatsappInviteLink}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    Clipboard.setStringAsync(waStatusQuery.data!.whatsappInviteLink!);
+                    showToast("Link copied");
+                  }}
+                  style={styles.waCopyBtn}
+                >
+                  <Feather name="copy" size={14} color={colors.primary} />
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+          <Pressable onPress={() => setWaSendOpen(true)} style={styles.waSendBtn}>
+            <Feather name="send" size={14} color="#fff" />
+            <Text style={styles.waSendText}>Send Update</Text>
+          </Pressable>
+        </View>
+      ) : waStatusQuery.data?.whatsappStatus === "failed" ? (
+        <View>
+          <View style={styles.waFailRow}>
+            <Feather name="alert-circle" size={16} color={colors.destructive} />
+            <Text style={styles.waFailText}>Group creation failed</Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              setWaInitiated(true);
+              createGroupMutation.mutate({ phone: data.advisor.phone, msg: formatCaseMessage(data) });
+            }}
+            style={styles.waRetryBtn}
+          >
+            <Text style={styles.waRetryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : waStatusQuery.data?.whatsappStatus === "manual_required" ? (
+        <View>
+          <View style={styles.waFailRow}>
+            <Feather name="help-circle" size={16} color="#B54708" />
+            <Text style={styles.waManualText}>Session Disconnected</Text>
+          </View>
+          <Text style={styles.waManualDesc}>
+            The server WhatsApp session is disconnected. Ask admin to re-scan the QR code, then retry.
+          </Text>
+          <Pressable
+            onPress={() => Linking.openURL("whatsapp://")}
+            style={styles.waOpenBtn}
+          >
+            <Feather name="message-circle" size={14} color="#25D366" />
+            <Text style={styles.waOpenBtnText}>Open WhatsApp</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              setWaInitiated(true);
+              createGroupMutation.mutate({ phone: data.advisor.phone, msg: formatCaseMessage(data) });
+            }}
+            style={styles.waRetryBtn}
+          >
+            <Text style={styles.waRetryText}>Retry Group Creation</Text>
+          </Pressable>
+        </View>
+      ) : waInitiated ||
+        waStatusQuery.data?.whatsappStatus === "pending" ||
+        waStatusQuery.data?.whatsappStatus === "retrying" ? (
+        <View style={styles.waCreatingRow}>
+          <ActivityIndicator color={colors.primary} size="small" />
+          <Text style={styles.waCreatingText}>Creating group...</Text>
+        </View>
+      ) : (
+        <View>
+          <Text style={styles.waNoGroupText}>No WhatsApp group created yet</Text>
+          <Pressable
+            onPress={() => { setWaInitialMsg(data ? formatCaseMessage(data) : ""); setWaCreateOpen(true); }}
+            style={styles.waCreateBtn}
+          >
+            <Feather name="users" size={14} color="#fff" />
+            <Text style={styles.waCreateText}>Create WhatsApp Group</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => Linking.openURL("whatsapp://")}
+            style={styles.waOpenBtn}
+          >
+            <Feather name="message-circle" size={14} color="#25D366" />
+            <Text style={styles.waOpenBtnText}>Open WhatsApp Manually</Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -1025,44 +1249,179 @@ function ImagesGrid({
   caseNumber: string;
   folder: "intake" | "repairs";
   role: string | undefined;
-  onImageView: (url: string) => void;
+  onImageView: (images: CaseEventImage[], index: number) => void;
 }) {
   const queryClient = useQueryClient();
   const { data: images, isLoading, refetch } = useCaseImages(caseNumber, folder);
   const [uploading, setUploading] = useState(false);
-  const canDelete = role === "superadmin" || role === "admin" || role === "advisor";
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"download" | "share" | "delete" | null>(null);
+
+  const canPrivileged = role === "superadmin" || role === "admin" || role === "advisor";
+
+  const toggleSelect = (id: number) => {
+    Haptics.selectionAsync();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const selectedImages = (images ?? []).filter((img) => selectedIds.has(img.id));
+
+  const isExpoGo = Constants.appOwnership === "expo";
+
+  const handleBulkDownload = async () => {
+    if (selectedImages.length === 0) return;
+    if (isExpoGo) {
+      Alert.alert(
+        "Dev Build Required",
+        "Saving to the photo library requires a development build. Run: eas build --profile development",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    setBulkAction("download");
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission denied", "Allow photo library access in Settings to save images.");
+        return;
+      }
+      const saveResults = await Promise.allSettled(
+        selectedImages.map(async (img) => {
+          const ext = img.url.split("?")[0].split(".").pop() ?? "jpg";
+          const localUri = `${FileSystem.cacheDirectory}ym_${img.id}_${Date.now()}.${ext}`;
+          const { uri } = await FileSystem.downloadAsync(img.url, localUri);
+          await MediaLibrary.saveToLibraryAsync(uri);
+        })
+      );
+      const saved = saveResults.filter((r) => r.status === "fulfilled").length;
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert("Saved", `${saved} image${saved !== 1 ? "s" : ""} saved to photo library.`);
+      exitSelectMode();
+    } catch (e) {
+      Alert.alert("Download failed", e instanceof Error ? e.message : "Could not save images.");
+    } finally {
+      setBulkAction(null);
+    }
+  };
+
+  const handleBulkShare = async () => {
+    if (selectedImages.length === 0) return;
+    setBulkAction("share");
+    try {
+      // Download all in parallel
+      const settled = await Promise.allSettled(
+        selectedImages.map(async (img) => {
+          const ext = img.url.split("?")[0].split(".").pop() ?? "jpg";
+          const localUri = `${FileSystem.cacheDirectory}wa_${img.id}_${Date.now()}.${ext}`;
+          const { uri } = await FileSystem.downloadAsync(img.url, localUri);
+          return uri;
+        })
+      );
+      const localUris = settled
+        .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
+        .map((r) => r.value);
+
+      if (localUris.length === 0) {
+        Alert.alert("Share failed", "Could not prepare images for sharing.");
+        return;
+      }
+
+      if (Platform.OS === "android") {
+        try {
+          const contentUris = await Promise.all(
+            localUris.map((uri) => FileSystem.getContentUriAsync(uri))
+          );
+          await IntentLauncher.startActivityAsync("android.intent.action.SEND_MULTIPLE", {
+            type: "image/*",
+            extra: { "android.intent.extra.STREAM": contentUris },
+            packageName: "com.whatsapp",
+            flags: 1,
+          });
+        } catch (intentErr: unknown) {
+          // WhatsApp not installed or rejected content URIs (common in Expo Go) — fall back to system share sheet
+          const msg = intentErr instanceof Error ? intentErr.message : "";
+          if (!msg.toLowerCase().includes("cancel")) {
+            const available = await Sharing.isAvailableAsync();
+            if (available) {
+              for (const uri of localUris) {
+                await Sharing.shareAsync(uri, { mimeType: "image/jpeg" });
+              }
+            } else {
+              Alert.alert("Share failed", "WhatsApp not found. Make sure it is installed.");
+            }
+          }
+        }
+      } else {
+        // iOS: system share sheet per image (no multi-file share API on iOS without native module)
+        const available = await Sharing.isAvailableAsync();
+        if (!available) { Alert.alert("Sharing not available on this device."); return; }
+        for (const uri of localUris) {
+          await Sharing.shareAsync(uri, { mimeType: "image/jpeg", UTI: "public.jpeg" });
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      if (!msg.toLowerCase().includes("cancel")) {
+        Alert.alert("Share failed", "Could not share images. Check that WhatsApp is installed.");
+      }
+    } finally {
+      setBulkAction(null);
+    }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedImages.length === 0) return;
+    Alert.alert(
+      "Delete Images",
+      `Remove ${selectedIds.size} image${selectedIds.size !== 1 ? "s" : ""}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            setBulkAction("delete");
+            try {
+              await Promise.all(selectedImages.map((img) => deleteImage(caseNumber, img.id)));
+              queryClient.invalidateQueries({ queryKey: ["images", caseNumber, folder] });
+              queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
+              exitSelectMode();
+            } catch (e) {
+              Alert.alert("Error", e instanceof Error ? e.message : "Failed to delete images.");
+            } finally {
+              setBulkAction(null);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   const pickImages = (): Promise<string[]> =>
     new Promise((resolve) => {
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
-          {
-            options: ["Cancel", "Take Photo", "Choose from Gallery"],
-            cancelButtonIndex: 0,
-          },
+          { options: ["Cancel", "Take Photo", "Choose from Gallery"], cancelButtonIndex: 0 },
           async (idx) => {
             if (idx === 1) {
-              const { status } =
-                await ImagePickerLib.requestCameraPermissionsAsync();
-              if (status !== "granted") {
-                resolve([]);
-                return;
-              }
-              const r = await ImagePickerLib.launchCameraAsync({
-                quality: 0.85,
-              });
+              const { status } = await ImagePickerLib.requestCameraPermissionsAsync();
+              if (status !== "granted") { resolve([]); return; }
+              const r = await ImagePickerLib.launchCameraAsync({ quality: 0.85 });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             } else if (idx === 2) {
-              const { status } =
-                await ImagePickerLib.requestMediaLibraryPermissionsAsync();
-              if (status !== "granted") {
-                resolve([]);
-                return;
-              }
-              const r = await ImagePickerLib.launchImageLibraryAsync({
-                quality: 0.85,
-                allowsMultipleSelection: true,
-              });
+              const { status } = await ImagePickerLib.requestMediaLibraryPermissionsAsync();
+              if (status !== "granted") { resolve([]); return; }
+              const r = await ImagePickerLib.launchImageLibraryAsync({ quality: 0.85, allowsMultipleSelection: true });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             } else {
               resolve([]);
@@ -1074,31 +1433,18 @@ function ImagesGrid({
           {
             text: "Take Photo",
             onPress: async () => {
-              const { status } =
-                await ImagePickerLib.requestCameraPermissionsAsync();
-              if (status !== "granted") {
-                resolve([]);
-                return;
-              }
-              const r = await ImagePickerLib.launchCameraAsync({
-                quality: 0.85,
-              });
+              const { status } = await ImagePickerLib.requestCameraPermissionsAsync();
+              if (status !== "granted") { resolve([]); return; }
+              const r = await ImagePickerLib.launchCameraAsync({ quality: 0.85 });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             },
           },
           {
             text: "Choose from Gallery",
             onPress: async () => {
-              const { status } =
-                await ImagePickerLib.requestMediaLibraryPermissionsAsync();
-              if (status !== "granted") {
-                resolve([]);
-                return;
-              }
-              const r = await ImagePickerLib.launchImageLibraryAsync({
-                quality: 0.85,
-                allowsMultipleSelection: true,
-              });
+              const { status } = await ImagePickerLib.requestMediaLibraryPermissionsAsync();
+              if (status !== "granted") { resolve([]); return; }
+              const r = await ImagePickerLib.launchImageLibraryAsync({ quality: 0.85, allowsMultipleSelection: true });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             },
           },
@@ -1107,32 +1453,36 @@ function ImagesGrid({
       }
     });
 
+  const getMimeType = (uri: string): { mime: string; ext: string } => {
+    const lower = uri.split("?")[0].toLowerCase();
+    if (lower.endsWith(".heic")) return { mime: "image/heic", ext: "heic" };
+    if (lower.endsWith(".heif")) return { mime: "image/heif", ext: "heif" };
+    if (lower.endsWith(".png")) return { mime: "image/png", ext: "png" };
+    if (lower.endsWith(".webp")) return { mime: "image/webp", ext: "webp" };
+    return { mime: "image/jpeg", ext: "jpg" };
+  };
+
   const handleAdd = async () => {
     const uris = await pickImages();
     if (uris.length === 0) return;
-
     setUploading(true);
-    const confirmed: ConfirmImageItem[] = [];
-    let failedCount = 0;
 
-    for (const uri of uris) {
-      try {
-        const filename = `${Array.from({ length: 4 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("")}.jpg`;
-        const presigned = await presignImage(caseNumber, {
-          filename,
-          contentType: "image/jpeg",
-          folder,
-        });
-        await uploadImageToS3(presigned.uploadUrl, uri, "image/jpeg");
-        confirmed.push({
-          key: presigned.key,
-          filename,
-          folder,
-        });
-      } catch {
-        failedCount++;
-      }
-    }
+    const results = await Promise.allSettled(
+      uris.map(async (uri) => {
+        const { mime, ext } = getMimeType(uri);
+        const filename = `${Array.from({ length: 4 }, () =>
+          String.fromCharCode(97 + Math.floor(Math.random() * 26))
+        ).join("")}.${ext}`;
+        const presigned = await presignImage(caseNumber, { filename, contentType: mime, folder });
+        await uploadImageToS3(presigned.uploadUrl, uri, mime);
+        return { key: presigned.key, filename, folder } as ConfirmImageItem;
+      })
+    );
+
+    const confirmed = results
+      .filter((r): r is PromiseFulfilledResult<ConfirmImageItem> => r.status === "fulfilled")
+      .map((r) => r.value);
+    const failedCount = results.filter((r) => r.status === "rejected").length;
 
     if (confirmed.length > 0) {
       try {
@@ -1143,88 +1493,122 @@ function ImagesGrid({
         return;
       }
     }
-
-    queryClient.invalidateQueries({
-      queryKey: ["images", caseNumber, folder],
-    });
+    queryClient.invalidateQueries({ queryKey: ["images", caseNumber, folder] });
     queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
     setUploading(false);
-
-    if (failedCount > 0) {
-      Alert.alert(
-        "Upload Complete",
-        `${confirmed.length} uploaded, ${failedCount} failed`
-      );
-    }
+    if (failedCount > 0) Alert.alert("Upload Complete", `${confirmed.length} uploaded, ${failedCount} failed`);
   };
 
-  const handleDelete = (image: CaseEventImage) => {
-    Alert.alert("Delete Image", "Remove this image?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await deleteImage(caseNumber, image.id);
-            queryClient.invalidateQueries({
-              queryKey: ["images", caseNumber, folder],
-            });
-          } catch (e) {
-            Alert.alert(
-              "Error",
-              e instanceof Error ? e.message : "Failed to delete image."
-            );
-          }
-        },
-      },
-    ]);
-  };
+  const imageList = images ?? [];
+  const isBusy = !!bulkAction;
 
   return (
     <View>
       {isLoading ? (
-        <ActivityIndicator
-          color={colors.primary}
-          style={styles.imagesLoading}
-        />
+        <ActivityIndicator color={colors.primary} style={styles.imagesLoading} />
+      ) : imageList.length === 0 ? (
+        <View style={styles.emptyImages}>
+          <Feather name="image" size={24} color={colors.textMuted} />
+          <Text style={styles.emptyImagesText}>No photos yet</Text>
+          <Text style={styles.emptyImagesSub}>Tap "Add Photos" to upload images</Text>
+        </View>
       ) : (
         <View style={styles.imageGrid}>
-          {(images ?? []).map((img) => (
+          {imageList.map((img) => (
             <ImageThumbnail
               key={img.id}
               image={img}
-              onPress={() => onImageView(img.url)}
+              selectMode={selectMode}
+              selected={selectedIds.has(img.id)}
+              onPress={() => {
+                if (selectMode) {
+                  toggleSelect(img.id);
+                } else {
+                  onImageView(imageList, imageList.indexOf(img));
+                }
+              }}
               onLongPress={
-                canDelete ? () => handleDelete(img) : undefined
+                !selectMode && canPrivileged
+                  ? () => { setSelectMode(true); toggleSelect(img.id); }
+                  : undefined
               }
             />
           ))}
         </View>
       )}
 
-      <View style={styles.imageActions}>
-        <Pressable
-          onPress={handleAdd}
-          disabled={uploading}
-          style={[
-            styles.addPhotoBtn,
-            uploading && styles.disabled,
-          ]}
-        >
-          {uploading ? (
-            <ActivityIndicator color={colors.primary} size="small" />
-          ) : (
-            <>
-              <Feather name="camera" size={14} color={colors.primary} />
-              <Text style={styles.addPhotoText}>Add Photos</Text>
-            </>
+      {selectMode ? (
+        <View style={styles.selectBar}>
+          <Pressable onPress={exitSelectMode} style={styles.cancelSelectBtn} disabled={isBusy}>
+            <Text style={styles.cancelSelectText}>Cancel</Text>
+          </Pressable>
+          <Text style={styles.selectedCount}>
+            {selectedIds.size} selected
+          </Text>
+          <View style={styles.bulkBtns}>
+            <Pressable
+              onPress={handleBulkDownload}
+              disabled={selectedIds.size === 0 || isBusy}
+              style={[styles.bulkBtn, (selectedIds.size === 0 || isBusy) && styles.disabled]}
+            >
+              {bulkAction === "download" ? (
+                <ActivityIndicator color={colors.primary} size="small" />
+              ) : (
+                <Feather name="download" size={18} color={colors.primary} />
+              )}
+            </Pressable>
+            <Pressable
+              onPress={handleBulkShare}
+              disabled={selectedIds.size === 0 || isBusy}
+              style={[styles.bulkBtn, (selectedIds.size === 0 || isBusy) && styles.disabled]}
+            >
+              {bulkAction === "share" ? (
+                <ActivityIndicator color="#25D366" size="small" />
+              ) : (
+                <Feather name="share-2" size={18} color="#25D366" />
+              )}
+            </Pressable>
+            {canPrivileged && (
+              <Pressable
+                onPress={handleBulkDelete}
+                disabled={selectedIds.size === 0 || isBusy}
+                style={[styles.bulkBtn, styles.bulkBtnDanger, (selectedIds.size === 0 || isBusy) && styles.disabled]}
+              >
+                {bulkAction === "delete" ? (
+                  <ActivityIndicator color={colors.destructive} size="small" />
+                ) : (
+                  <Feather name="trash-2" size={18} color={colors.destructive} />
+                )}
+              </Pressable>
+            )}
+          </View>
+        </View>
+      ) : (
+        <View style={styles.imageActions}>
+          <Pressable
+            onPress={handleAdd}
+            disabled={uploading}
+            style={[styles.addPhotoBtn, uploading && styles.disabled]}
+          >
+            {uploading ? (
+              <ActivityIndicator color={colors.primary} size="small" />
+            ) : (
+              <>
+                <Feather name="camera" size={14} color={colors.primary} />
+                <Text style={styles.addPhotoText}>Add Photos</Text>
+              </>
+            )}
+          </Pressable>
+          {canPrivileged && imageList.length > 0 && (
+            <Pressable onPress={() => setSelectMode(true)} style={styles.selectBtn}>
+              <Feather name="check-square" size={14} color={colors.textSecondary} />
+            </Pressable>
           )}
-        </Pressable>
-        <Pressable onPress={() => refetch()} style={styles.refreshBtn}>
-          <Feather name="refresh-cw" size={14} color={colors.textSecondary} />
-        </Pressable>
-      </View>
+          <Pressable onPress={() => refetch()} style={styles.refreshBtn}>
+            <Feather name="refresh-cw" size={14} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
@@ -1241,13 +1625,13 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 17,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
   },
   emptyText: {
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
     lineHeight: 19,
     textAlign: "center",
@@ -1266,7 +1650,7 @@ const styles = StyleSheet.create({
   },
   retryText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.primary,
   },
@@ -1279,20 +1663,20 @@ const styles = StyleSheet.create({
   },
   caseNumber: {
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.primary,
     marginBottom: 8,
   },
   vehicle: {
     fontSize: 25,
-    fontFamily: "Inter_700Bold",
+    fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: colors.text,
   },
   model: {
     fontSize: 14,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
     marginTop: 3,
   },
@@ -1319,14 +1703,14 @@ const styles = StyleSheet.create({
   },
   infoLabel: {
     fontSize: 12,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textMuted,
   },
   infoValue: {
     flex: 1,
     textAlign: "right",
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
   },
@@ -1338,7 +1722,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 15,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
   },
@@ -1350,7 +1734,7 @@ const styles = StyleSheet.create({
   },
   updateText: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.primary,
   },
@@ -1367,22 +1751,40 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   eventBody: { flex: 1 },
+  eventHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  eventCreator: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.primary,
+    flexShrink: 1,
+  },
   eventType: {
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,
   },
+  eventFromTo: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.primary,
+    marginTop: 2,
+  },
   eventMsg: {
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
     lineHeight: 18,
     marginTop: 3,
   },
   eventTime: {
     fontSize: 11,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
     marginTop: 4,
   },
@@ -1409,17 +1811,22 @@ const styles = StyleSheet.create({
   },
   sheetTitle: {
     fontSize: 17,
-    fontFamily: "Inter_700Bold",
+    fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: colors.text,
     marginBottom: 8,
   },
-  waGroupMeta: {
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
+  currentStatus: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textSecondary,
     marginBottom: 14,
-    lineHeight: 19,
+  },
+  waGroupMeta: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: colors.textSecondary,
+    marginBottom: 16,
   },
   statusGrid: {
     flexDirection: "row",
@@ -1440,7 +1847,7 @@ const styles = StyleSheet.create({
   },
   statusOptionText: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.textSecondary,
   },
@@ -1456,7 +1863,7 @@ const styles = StyleSheet.create({
     padding: 12,
     color: colors.text,
     fontSize: 14,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     textAlignVertical: "top",
     marginTop: 14,
   },
@@ -1471,7 +1878,7 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.55 },
   saveText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#fff",
   },
@@ -1481,7 +1888,7 @@ const styles = StyleSheet.create({
   },
   sheetCancelText: {
     fontSize: 14,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textSecondary,
   },
 
@@ -1499,7 +1906,7 @@ const styles = StyleSheet.create({
   },
   editDetailsText: {
     fontSize: 13,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.primary,
   },
@@ -1527,7 +1934,7 @@ const styles = StyleSheet.create({
   },
   tabText: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.textMuted,
   },
@@ -1542,11 +1949,85 @@ const styles = StyleSheet.create({
   imagesLoading: {
     paddingVertical: 24,
   },
+  emptyImages: {
+    alignItems: "center",
+    paddingVertical: 24,
+    gap: 6,
+  },
+  emptyImagesText: {
+    fontSize: 14,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: colors.textMuted,
+  },
+  emptyImagesSub: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: colors.textMuted,
+    textAlign: "center",
+  },
   imageActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     marginTop: 12,
+  },
+  selectBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  cancelSelectBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: colors.inputBg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cancelSelectText: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.textSecondary,
+  },
+  selectedCount: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: colors.text,
+  },
+  bulkBtns: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  bulkBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primaryFaint,
+    borderWidth: 1,
+    borderColor: colors.primary + "30",
+  },
+  bulkBtnDanger: {
+    backgroundColor: colors.destructive + "12",
+    borderColor: colors.destructive + "30",
+  },
+  selectBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.inputBg,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   addPhotoBtn: {
     flexDirection: "row",
@@ -1561,7 +2042,7 @@ const styles = StyleSheet.create({
   },
   addPhotoText: {
     fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.primary,
   },
@@ -1587,7 +2068,7 @@ const styles = StyleSheet.create({
   },
   submitBtnText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#fff",
   },
@@ -1599,9 +2080,8 @@ const styles = StyleSheet.create({
   },
   editFieldLabel: {
     fontSize: 12,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textSecondary,
-    textTransform: "uppercase",
     marginBottom: 7,
   },
   editRequired: {
@@ -1617,7 +2097,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     color: colors.text,
     fontSize: 15,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
   },
   editFieldTextarea: {
     minHeight: 88,
@@ -1625,31 +2105,101 @@ const styles = StyleSheet.create({
   },
   editErrorText: {
     fontSize: 12,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.destructive,
     marginBottom: 12,
   },
   viewerBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.92)",
-    justifyContent: "center",
-    alignItems: "center",
+    backgroundColor: "#000",
+    justifyContent: "space-between",
   },
-  viewerClose: {
-    position: "absolute",
-    top: 50,
-    right: 20,
+  viewerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 52,
+    paddingBottom: 12,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  viewerHeaderBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 10,
+  },
+  viewerCounter: {
+    fontSize: 14,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: "rgba(255,255,255,0.85)",
+    letterSpacing: 0.5,
+  },
+  viewerImageArea: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
   },
   viewerImage: {
     width: "100%",
-    height: "80%",
+    height: "100%",
+  },
+  viewerNavBtn: {
+    position: "absolute",
+    top: "50%",
+    marginTop: -28,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewerNavLeft: {
+    left: 12,
+  },
+  viewerNavRight: {
+    right: 12,
+  },
+  viewerFooter: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 36,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    gap: 4,
+  },
+  viewerPrimaryBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#F59E0B",
+    alignSelf: "flex-start",
+    borderRadius: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    marginBottom: 4,
+  },
+  viewerPrimaryText: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: "#fff",
+    textTransform: "uppercase",
+  },
+  viewerFilename: {
+    fontSize: 14,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: "#fff",
+  },
+  viewerMeta: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: "rgba(255,255,255,0.55)",
   },
 
   waLoading: {
@@ -1663,7 +2213,7 @@ const styles = StyleSheet.create({
   },
   waSuccessText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.success,
   },
@@ -1672,7 +2222,7 @@ const styles = StyleSheet.create({
   },
   waInviteLabel: {
     fontSize: 11,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textMuted,
     textTransform: "uppercase",
     marginBottom: 6,
@@ -1685,7 +2235,7 @@ const styles = StyleSheet.create({
   waInviteLink: {
     flex: 1,
     fontSize: 12,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
   },
   waCopyBtn: {
@@ -1707,7 +2257,7 @@ const styles = StyleSheet.create({
   },
   waSendText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#fff",
   },
@@ -1719,15 +2269,41 @@ const styles = StyleSheet.create({
   },
   waFailText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.destructive,
   },
   waManualText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#B54708",
+  },
+  waManualDesc: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  waOpenBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#25D366" + "60",
+    backgroundColor: "#25D366" + "10",
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  waOpenBtnText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: "#25D366",
   },
   waRetryBtn: {
     alignItems: "center",
@@ -1740,7 +2316,7 @@ const styles = StyleSheet.create({
   },
   waRetryText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.destructive,
   },
@@ -1752,13 +2328,13 @@ const styles = StyleSheet.create({
   },
   waCreatingText: {
     fontSize: 13,
-    fontFamily: "Inter_500Medium",
+    fontFamily: "PlusJakartaSans_500Medium",
     fontWeight: "500" as const,
     color: colors.textSecondary,
   },
   waNoGroupText: {
     fontSize: 13,
-    fontFamily: "Inter_400Regular",
+    fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textSecondary,
     marginBottom: 14,
   },
@@ -1773,7 +2349,7 @@ const styles = StyleSheet.create({
   },
   waCreateText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: "#fff",
   },
@@ -1790,7 +2366,7 @@ const styles = StyleSheet.create({
   },
   deleteCaseBtnText: {
     fontSize: 14,
-    fontFamily: "Inter_600SemiBold",
+    fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.destructive,
   },

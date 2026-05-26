@@ -20,10 +20,12 @@ export interface IntakeFormData {
 interface IntakeStore {
   formData: IntakeFormData;
   vehicleNumber: string;
+  createdCaseNumber: string | null;
   selectedSharingImages: string[];
   hydrated: boolean;
   setFormData: (data: Partial<IntakeFormData>) => void;
   setVehicleNumber: (vn: string) => void;
+  setCreatedCaseNumber: (caseNumber: string | null) => void;
   setSelectedSharingImages: (images: string[]) => void;
   setHydrated: (v: boolean) => void;
   reset: () => void;
@@ -46,11 +48,13 @@ export const useIntakeStore = create<IntakeStore>()(
     (set) => ({
       formData: defaultFormData,
       vehicleNumber: "",
+      createdCaseNumber: null,
       selectedSharingImages: [],
       hydrated: false,
       setFormData: (data) =>
         set((state) => ({ formData: { ...state.formData, ...data } })),
       setVehicleNumber: (vehicleNumber) => set({ vehicleNumber }),
+      setCreatedCaseNumber: (createdCaseNumber) => set({ createdCaseNumber }),
       setSelectedSharingImages: (selectedSharingImages) =>
         set({ selectedSharingImages }),
       setHydrated: (hydrated) => set({ hydrated }),
@@ -58,6 +62,7 @@ export const useIntakeStore = create<IntakeStore>()(
         set({
           formData: defaultFormData,
           vehicleNumber: "",
+          createdCaseNumber: null,
           selectedSharingImages: [],
         }),
     }),
@@ -68,6 +73,7 @@ export const useIntakeStore = create<IntakeStore>()(
       partialize: (state) => ({
         formData: state.formData,
         vehicleNumber: state.vehicleNumber,
+        createdCaseNumber: state.createdCaseNumber,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);

@@ -1,9 +1,11 @@
 import { Router, type Request, type Response } from "express";
-import { eq, desc, or, ne, and, inArray, isNull } from "drizzle-orm";
+import { eq, desc, or, ne, and, inArray, isNull, gt } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { cases, users, caseEvents, notifications } from "../db/schema.js";
+import { cases, users, caseEvents, notifications, caseEventImages } from "../db/schema.js";
 import { generateCaseNumber } from "../lib/caseNumber.js";
+import { waQueue } from "../lib/queue.js";
+import { presignGet } from "../lib/s3.js";
 import {
   requireAuth,
   requireRole,
@@ -81,47 +83,79 @@ function canAccessCase(
 
 const caseListWithAdvisor = { ...caseListSelect, advisorName: users.name };
 
+// ── primary image helper ───────────────────────────────────────────────────────
+
+async function attachPrimaryImages<T extends { id: number }>(
+  rows: T[]
+): Promise<(T & { primaryImageUrl?: string })[]> {
+  if (rows.length === 0) return rows;
+
+  const primaryImgs = await db
+    .select({ caseId: caseEventImages.caseId, s3Key: caseEventImages.s3Key })
+    .from(caseEventImages)
+    .where(and(eq(caseEventImages.isPrimary, true), inArray(caseEventImages.caseId, rows.map((r) => r.id))));
+
+  const keyMap = new Map(primaryImgs.map((img) => [img.caseId, img.s3Key]));
+  const uniqueKeys = [...new Set(keyMap.values())];
+
+  const urlMap = new Map<string, string>();
+  await Promise.all(
+    uniqueKeys.map(async (key) => {
+      try { urlMap.set(key, await presignGet(key)); } catch { /* skip */ }
+    })
+  );
+
+  return rows.map((row) => {
+    const key = keyMap.get(row.id);
+    const url = key ? urlMap.get(key) : undefined;
+    return url ? { ...row, primaryImageUrl: url } : row;
+  });
+}
+
 // ── GET /cases ─────────────────────────────────────────────────────────────────
 
 router.get("/", async (req: Request, res: Response): Promise<void> => {
   const { role, userId } = (req as AuthRequest).user;
 
   if (role === "superadmin" || role === "admin") {
-    const result = await db
+    const rows = await db
       .select(caseListWithAdvisor)
       .from(cases)
       .leftJoin(users, eq(cases.advisorId, users.id))
       .where(isNull(cases.deletedAt))
       .orderBy(desc(cases.createdAt));
-    res.json(result);
+    res.json(await attachPrimaryImages(rows));
     return;
   }
 
   if (role === "advisor") {
-    const result = await db
+    const rows = await db
       .select(caseListWithAdvisor)
       .from(cases)
       .leftJoin(users, eq(cases.advisorId, users.id))
       .where(and(eq(cases.advisorId, userId), isNull(cases.deletedAt)))
       .orderBy(desc(cases.createdAt));
-    res.json(result);
+    res.json(await attachPrimaryImages(rows));
     return;
   }
 
   if (role === "technician") {
-    const result = await db
+    const includeAll = req.query.history === "1";
+    const rows = await db
       .select(caseListWithAdvisor)
       .from(cases)
       .leftJoin(users, eq(cases.advisorId, users.id))
       .where(
-        and(
-          isNull(cases.deletedAt),
-          ne(cases.internalStatus, "delivered"),
-          ne(cases.internalStatus, "cancelled")
-        )
+        includeAll
+          ? isNull(cases.deletedAt)
+          : and(
+              isNull(cases.deletedAt),
+              ne(cases.internalStatus, "delivered"),
+              ne(cases.internalStatus, "cancelled")
+            )
       )
-      .orderBy(desc(cases.createdAt));
-    res.json(result);
+      .orderBy(desc(cases.updatedAt));
+    res.json(await attachPrimaryImages(rows));
     return;
   }
 
@@ -172,19 +206,24 @@ router.get("/:caseNumber", async (req: Request, res: Response): Promise<void> =>
     res.status(403).json({ error: "Forbidden" }); return;
   }
 
-  // Fetch timeline events
-  const events = await db
-    .select()
-    .from(caseEvents)
-    .where(eq(caseEvents.caseId, c.id))
-    .orderBy(caseEvents.createdAt);
-
-  // Fetch advisor name
-  const [advisor] = await db
-    .select({ id: users.id, name: users.name, phone: users.phone })
-    .from(users)
-    .where(eq(users.id, c.advisorId))
-    .limit(1);
+  const [events, [advisor]] = await Promise.all([
+    db
+      .select({
+        id: caseEvents.id,
+        caseId: caseEvents.caseId,
+        eventType: caseEvents.eventType,
+        message: caseEvents.message,
+        metadata: caseEvents.metadata,
+        createdBy: caseEvents.createdBy,
+        createdByName: users.name,
+        createdAt: caseEvents.createdAt,
+      })
+      .from(caseEvents)
+      .leftJoin(users, eq(caseEvents.createdBy, users.id))
+      .where(eq(caseEvents.caseId, c.id))
+      .orderBy(caseEvents.createdAt),
+    db.select({ id: users.id, name: users.name, phone: users.phone }).from(users).where(eq(users.id, c.advisorId)).limit(1),
+  ]);
 
   res.json({ ...c, advisor, events });
 });
@@ -207,19 +246,59 @@ router.put(
     }
 
     const prevStatus = c.internalStatus;
+    const isDelivery = parsed.data.status === "delivered";
+    const isCancellation = parsed.data.status === "cancelled";
+
     const [updated] = await db
       .update(cases)
-      .set({ internalStatus: parsed.data.status, updatedAt: new Date() })
+      .set({
+        internalStatus: parsed.data.status,
+        ...(isDelivery ? { customerStatus: "delivered" } : {}),
+        ...(isCancellation ? { customerStatus: "received" } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(cases.id, c.id))
-      .returning({ internalStatus: cases.internalStatus });
+      .returning({ internalStatus: cases.internalStatus, customerStatus: cases.customerStatus });
 
-    await db.insert(caseEvents).values({
-      caseId: c.id,
-      eventType: "internal_status_change",
-      createdBy: userId,
-      message: parsed.data.note ?? null,
-      metadata: { from: prevStatus, to: parsed.data.status },
-    });
+    const extraEvents = isDelivery
+      ? [
+          {
+            caseId: c.id,
+            eventType: "customer_status_change" as const,
+            createdBy: userId,
+            message: null as string | null,
+            metadata: { from: c.customerStatus, to: "delivered", auto: true },
+          },
+          {
+            caseId: c.id,
+            eventType: "delivery_completed" as const,
+            createdBy: userId,
+            message: "Vehicle delivered to customer",
+            metadata: {} as Record<string, unknown>,
+          },
+        ]
+      : isCancellation
+      ? [
+          {
+            caseId: c.id,
+            eventType: "customer_status_change" as const,
+            createdBy: userId,
+            message: null as string | null,
+            metadata: { from: c.customerStatus, to: "received", auto: true },
+          },
+        ]
+      : [];
+
+    await db.insert(caseEvents).values([
+      {
+        caseId: c.id,
+        eventType: "internal_status_change",
+        createdBy: userId,
+        message: parsed.data.note ?? null,
+        metadata: { from: prevStatus, to: parsed.data.status },
+      },
+      ...extraEvents,
+    ]);
 
     res.json(updated);
   }
@@ -275,6 +354,17 @@ router.delete(
       .set({ deletedAt: new Date() })
       .where(eq(cases.id, c.id));
 
+    // Cancel any pending/delayed WhatsApp jobs for this case so the worker
+    // doesn't mutate a deleted case.
+    try {
+      const pending = await waQueue.getJobs(["waiting", "delayed", "active"]);
+      await Promise.allSettled(
+        pending.filter((j) => j.data.caseId === c.id).map((j) => j.remove())
+      );
+    } catch (queueErr) {
+      console.warn("[delete case] Could not drain WA jobs:", queueErr);
+    }
+
     res.status(204).end();
   }
 );
@@ -294,6 +384,26 @@ router.post(
 
     const c = await findCase(String(req.params.caseNumber));
     if (!c) { res.status(404).json({ error: "Case not found" }); return; }
+
+    // Rate-limit: one notification per technician per case per 5 minutes
+    const cooldown = new Date(Date.now() - 5 * 60 * 1000);
+    const [recent] = await db
+      .select({ id: caseEvents.id })
+      .from(caseEvents)
+      .where(
+        and(
+          eq(caseEvents.caseId, c.id),
+          eq(caseEvents.createdBy, userId),
+          eq(caseEvents.eventType, "technician_update"),
+          gt(caseEvents.createdAt, cooldown)
+        )
+      )
+      .orderBy(desc(caseEvents.createdAt))
+      .limit(1);
+    if (recent) {
+      res.status(429).json({ error: "Already notified the advisor recently. Please wait a few minutes." });
+      return;
+    }
 
     // Timeline event so advisor sees it in the case history
     const [event] = await db

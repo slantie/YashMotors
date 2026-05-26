@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import { cases, caseEvents, caseEventImages } from "../db/schema.js";
@@ -18,7 +18,7 @@ router.use(requireAuth);
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 async function findCase(caseNumber: string) {
-  const [c] = await db.select().from(cases).where(eq(cases.caseNumber, caseNumber)).limit(1);
+  const [c] = await db.select().from(cases).where(and(eq(cases.caseNumber, caseNumber), isNull(cases.deletedAt))).limit(1);
   return c ?? null;
 }
 
@@ -82,7 +82,10 @@ const confirmItemSchema = z.object({
 });
 
 const confirmSchema = z.object({
-  images: z.array(confirmItemSchema).min(1).max(20),
+  images: z.array(confirmItemSchema).min(1).max(20).refine(
+    (imgs) => imgs.filter((i) => i.isPrimary).length <= 1,
+    { message: "At most one image per batch can be marked as primary" }
+  ),
 });
 
 router.post(
@@ -106,43 +109,46 @@ router.post(
 
     const { images } = parsed.data;
 
-    // isPrimary is exclusive per case — unmark old primary if a new one is being set
-    if (images.some((img) => img.isPrimary)) {
-      await db
-        .update(caseEventImages)
-        .set({ isPrimary: false })
-        .where(eq(caseEventImages.caseId, c.id));
-    }
+    // Run clear+insert atomically to prevent concurrent uploads leaving multiple primaries
+    const { event, inserted } = await db.transaction(async (tx) => {
+      if (images.some((img) => img.isPrimary)) {
+        await tx
+          .update(caseEventImages)
+          .set({ isPrimary: false })
+          .where(eq(caseEventImages.caseId, c.id));
+      }
 
-    // One event for the entire upload batch
-    const [event] = await db
-      .insert(caseEvents)
-      .values({
-        caseId:    c.id,
-        eventType: "image_uploaded",
-        createdBy: userId,
-        message:   `${images.length} image${images.length > 1 ? "s" : ""} uploaded`,
-        metadata:  { count: images.length, folder: images[0].folder },
-      })
-      .returning();
+      const [event] = await tx
+        .insert(caseEvents)
+        .values({
+          caseId:    c.id,
+          eventType: "image_uploaded",
+          createdBy: userId,
+          message:   `${images.length} image${images.length > 1 ? "s" : ""} uploaded`,
+          metadata:  { count: images.length, folder: images[0].folder },
+        })
+        .returning();
 
-    const inserted = await db
-      .insert(caseEventImages)
-      .values(
-        images.map((img) => ({
-          eventId:        event.id,
-          caseId:         c.id,
-          s3Key:          img.key,
-          filename:       img.filename,
-          folder:         img.folder,
-          isPrimary:      img.isPrimary,
-          timestampClick: img.timestampClick ? new Date(img.timestampClick) : null,
-          lat:            img.lat != null ? String(img.lat) : null,
-          lng:            img.lng != null ? String(img.lng) : null,
-          uploadedBy:     userId,
-        }))
-      )
-      .returning();
+      const inserted = await tx
+        .insert(caseEventImages)
+        .values(
+          images.map((img) => ({
+            eventId:        event.id,
+            caseId:         c.id,
+            s3Key:          img.key,
+            filename:       img.filename,
+            folder:         img.folder,
+            isPrimary:      img.isPrimary,
+            timestampClick: img.timestampClick ? new Date(img.timestampClick) : null,
+            lat:            img.lat != null ? String(img.lat) : null,
+            lng:            img.lng != null ? String(img.lng) : null,
+            uploadedBy:     userId,
+          }))
+        )
+        .returning();
+
+      return { event, inserted };
+    });
 
     console.log(`[confirm] ok eventId=${event.id} inserted=${inserted.length}`);
     res.status(201).json({ event, images: inserted });
@@ -166,7 +172,11 @@ router.get(
       res.status(403).json({ error: "Forbidden" }); return;
     }
 
-    const folderFilter = req.query.folder as string | undefined;
+    const rawFolder = req.query.folder;
+    if (rawFolder !== undefined && rawFolder !== "intake" && rawFolder !== "repairs") {
+      res.status(400).json({ error: "folder must be 'intake' or 'repairs'" }); return;
+    }
+    const folderFilter = rawFolder as "intake" | "repairs" | undefined;
 
     const rows = await db
       .select()

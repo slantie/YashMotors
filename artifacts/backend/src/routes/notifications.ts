@@ -54,31 +54,25 @@ router.get("/", async (req: Request, res: Response): Promise<void> => {
   const limit = Math.min(Number(req.query.limit ?? 50), 100);
   const offset = Number(req.query.offset ?? 0);
 
-  const condition = unreadOnly
-    ? and(eq(notifications.userId, userId), eq(notifications.read, false))
-    : eq(notifications.userId, userId);
+  const unreadCondition = and(eq(notifications.userId, userId), eq(notifications.read, false));
+  const listCondition = unreadOnly ? unreadCondition : eq(notifications.userId, userId);
 
-  const [rows, [countRow]] = await Promise.all([
+  const [rows, [totalRow], [unreadRow]] = await Promise.all([
     db
       .select()
       .from(notifications)
-      .where(condition)
+      .where(listCondition)
       .orderBy(desc(notifications.createdAt))
       .limit(limit)
       .offset(offset),
-    db.select({ count: count() }).from(notifications).where(condition),
+    db.select({ count: count() }).from(notifications).where(listCondition),
+    db.select({ count: count() }).from(notifications).where(unreadCondition),
   ]);
 
   res.json({
     notifications: rows,
-    total: countRow?.count ?? 0,
-    unreadCount: unreadOnly
-      ? (countRow?.count ?? 0)
-      : await db
-          .select({ count: count() })
-          .from(notifications)
-          .where(and(eq(notifications.userId, userId), eq(notifications.read, false)))
-          .then(([r]) => r?.count ?? 0),
+    total: totalRow?.count ?? 0,
+    unreadCount: unreadRow?.count ?? 0,
   });
 });
 
