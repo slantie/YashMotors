@@ -1,12 +1,8 @@
 import { Feather } from "@expo/vector-icons";
-import { useRouter, useNavigation } from "expo-router";
+import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import React from "react";
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import colors from "@/constants/colors";
@@ -14,61 +10,70 @@ import colors from "@/constants/colors";
 interface AppHeaderProps {
   title: string;
   subtitle?: string;
+  /**
+   * undefined (default) — auto: show back when navigation stack has a previous screen
+   * true  — always show back
+   * false — never show back
+   */
   showBack?: boolean;
   rightElement?: React.ReactNode;
 }
 
-export function AppHeader({
-  title,
-  subtitle,
-  showBack = false,
-  rightElement,
-}: AppHeaderProps) {
+export function AppHeader({ title, subtitle, showBack, rightElement }: AppHeaderProps) {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
+  const canGoBack = navigation.canGoBack();
+  const showBackBtn = showBack !== undefined ? showBack : canGoBack;
+
+  const handleBack = () => {
+    if (canGoBack) router.back();
+    else router.replace("/(tabs)");
+  };
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 12 }]}>
+    <View style={[styles.container, { paddingTop: insets.top + 22 }]}>
       <View style={styles.row}>
-        {showBack ? (
+
+        {/* Left slot — back button or spacer */}
+        {showBackBtn ? (
           <Pressable
-            onPress={() => navigation.canGoBack() ? router.back() : router.replace("/(tabs)")}
-            style={({ pressed }) => [
-              styles.sideSlot,
-              styles.backBtn,
-              pressed && styles.pressed,
-            ]}
-            hitSlop={8}
+            onPress={handleBack}
+            style={({ pressed }) => [styles.sideBtn, pressed && styles.pressed]}
+            hitSlop={10}
           >
-            <Feather name="arrow-left" size={22} color={colors.text} />
+            <Feather name="arrow-left" size={20} color={colors.text} />
           </Pressable>
         ) : (
           <View style={styles.sideSlot} />
         )}
 
-        <View style={styles.titleBlock}>
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
+        {/* Centre — title + subtitle */}
+        <View style={styles.centre}>
+          <Text style={styles.title} numberOfLines={1}>{title}</Text>
           {subtitle ? (
-            <Text style={styles.subtitle} numberOfLines={1}>
-              {subtitle}
-            </Text>
+            <Text style={styles.subtitle} numberOfLines={1}>{subtitle}</Text>
           ) : null}
         </View>
 
-        <View style={styles.right}>{rightElement ?? null}</View>
+        {/* Right slot */}
+        <View style={styles.rightSlot}>
+          {rightElement ?? null}
+        </View>
+
       </View>
     </View>
   );
 }
 
+const SLOT = 40;
+
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.background,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
@@ -77,41 +82,46 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  sideSlot: {
-    width: 40,
-    height: 40,
-  },
-  backBtn: {
+  /* back button */
+  sideBtn: {
+    width: SLOT,
+    height: SLOT,
+    borderRadius: SLOT / 2,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 20,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  pressed: {
-    opacity: 0.6,
+  pressed: { opacity: 0.55 },
+  /* empty spacer keeps title centred when no back button */
+  sideSlot: {
+    width: SLOT,
+    height: SLOT,
   },
-  titleBlock: {
+  /* centred title block */
+  centre: {
     flex: 1,
     alignItems: "center",
   },
   title: {
     fontSize: 18,
     fontWeight: "700" as const,
-    color: colors.text,
     fontFamily: "PlusJakartaSans_700Bold",
-    letterSpacing: 0.3,
+    color: colors.text,
+    letterSpacing: 0.2,
   },
   subtitle: {
     fontSize: 12,
-    color: colors.textSecondary,
     fontFamily: "PlusJakartaSans_400Regular",
-    marginTop: 1,
+    color: colors.textSecondary,
+    marginTop: 2,
+    letterSpacing: 0.1,
   },
-  right: {
-    minWidth: 40,
-    height: 40,
+  /* right actions slot */
+  rightSlot: {
+    width: SLOT,
+    height: SLOT,
     alignItems: "center",
     justifyContent: "center",
   },

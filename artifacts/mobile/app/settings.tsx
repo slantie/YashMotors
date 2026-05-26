@@ -187,10 +187,13 @@ export default function SettingsScreen() {
                 <Text style={styles.avatarText}>{user?.name?.charAt(0).toUpperCase() ?? "Y"}</Text>
               </View>
             )}
-            <View style={[styles.avatarEditBadge, uploadingPhoto && { backgroundColor: colors.textMuted }]}>
-              {uploadingPhoto
-                ? <ActivityIndicator size={10} color="#fff" />
-                : <Feather name="camera" size={11} color="#fff" />}
+            {uploadingPhoto && (
+              <View style={styles.avatarUploadOverlay}>
+                <ActivityIndicator size="small" color="#fff" />
+              </View>
+            )}
+            <View style={styles.avatarEditBadge}>
+              <Feather name="camera" size={11} color="#fff" />
             </View>
           </Pressable>
           <Text style={styles.name}>{user?.name ?? "Yash Motors User"}</Text>
@@ -446,15 +449,15 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   avatarWrap: {
-    width: 72,
-    height: 72,
+    width: 80,
+    height: 80,
     marginBottom: 12,
     position: "relative",
   },
   avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primaryFaint,
@@ -462,25 +465,35 @@ const styles = StyleSheet.create({
     borderColor: colors.primary + "40",
   },
   avatarImgWrapper: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.primary + "40",
-    overflow: "hidden",
   },
   avatarImg: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 80,
+    height: 80,
+  },
+  avatarUploadOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 40,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarEditBadge: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
@@ -488,7 +501,7 @@ const styles = StyleSheet.create({
     borderColor: colors.surface,
   },
   avatarText: {
-    fontSize: 27,
+    fontSize: 30,
     fontFamily: "PlusJakartaSans_700Bold",
     fontWeight: "700" as const,
     color: colors.primary,

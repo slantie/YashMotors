@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 
 import { AppHeader } from "@/components/AppHeader";
 import { CaseCard } from "@/components/cases/CaseCard";
@@ -41,6 +42,7 @@ function greeting() {
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const user = useAuthStore((state) => state.user);
   const [search, setSearch] = useState("");
   const isSearching = search.trim().length > 0;
@@ -94,6 +96,7 @@ export default function DashboardScreen() {
       <AppHeader
         title="Dashboard"
         subtitle={`${greeting()}, ${user?.name?.split(" ")[0] ?? "Admin"}`}
+        showBack={false}
       />
 
       {/* Search — always visible, outside scroll */}
@@ -135,7 +138,7 @@ export default function DashboardScreen() {
           )}
           contentContainerStyle={[
             styles.resultsList,
-            { paddingBottom: insets.bottom + 24 },
+            { paddingBottom: tabBarHeight + 16 },
             searchResults.length === 0 && styles.resultsEmpty,
           ]}
           keyboardShouldPersistTaps="handled"
@@ -152,7 +155,7 @@ export default function DashboardScreen() {
           style={styles.scroll}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: insets.bottom + 24 },
+            { paddingBottom: tabBarHeight + 16 },
           ]}
           refreshControl={
             <RefreshControl

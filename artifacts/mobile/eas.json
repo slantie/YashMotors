@@ -20,11 +20,12 @@
       "extends": "base",
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "http://YOUR_EC2_PUBLIC_IP" }
+      "env": { "EXPO_PUBLIC_API_URL": "http://91.99.113.238:3001" }
     },
     "production": {
       "extends": "base",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": { "EXPO_PUBLIC_API_URL": "http://91.99.113.238:3001" }
     }
   },
   "submit": {

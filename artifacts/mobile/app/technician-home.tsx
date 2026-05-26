@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 
 import { AppHeader } from "@/components/AppHeader";
 import colors from "@/constants/colors";
@@ -76,6 +77,7 @@ const FILTER_CHIPS: { label: string; value: string | null }[] = [
 
 export default function TechnicianHomeScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const user = useAuthStore((s) => s.user);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
@@ -117,6 +119,7 @@ export default function TechnicianHomeScreen() {
       <AppHeader
         title="Workshop"
         subtitle={`${greeting()}, ${user?.name?.split(" ")[0] ?? "Technician"}`}
+        showBack={false}
         rightElement={
           <Pressable onPress={() => router.push("/settings")} style={styles.iconBtn}>
             <Feather name="settings" size={18} color={colors.primary} />
@@ -209,7 +212,7 @@ export default function TechnicianHomeScreen() {
           )}
           contentContainerStyle={[
             styles.list,
-            { paddingBottom: insets.bottom + 24 },
+            { paddingBottom: tabBarHeight + 16 },
             cases.length === 0 && styles.listEmpty,
           ]}
           refreshControl={

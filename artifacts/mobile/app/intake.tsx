@@ -124,6 +124,7 @@ export default function IntakeScreen() {
       <AppHeader
         title="New Job Card"
         subtitle="Vehicle Intake"
+        showBack
         rightElement={
           <View style={styles.headerActions}>
             <TouchableOpacity

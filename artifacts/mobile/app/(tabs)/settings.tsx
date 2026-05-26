@@ -7,6 +7,7 @@ import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import { Alert, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { AppHeader } from "@/components/AppHeader";
@@ -28,6 +29,7 @@ function roleLabel(role?: string) {
 
 export default function SettingsTab() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const queryClient = useQueryClient();
@@ -173,7 +175,7 @@ export default function SettingsTab() {
       <AppHeader title="Settings" subtitle="Profile" />
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 16 }]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.profileCard}>

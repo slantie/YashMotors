@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import Svg, { Circle, Rect, Text as SvgText } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 
 import { AppHeader } from "@/components/AppHeader";
 import colors from "@/constants/colors";
@@ -92,6 +93,7 @@ function isToday(dateStr: string): boolean {
 
 export default function ManagementScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const { width } = useWindowDimensions();
   const user = useAuthStore((s) => s.user);
 
@@ -373,7 +375,7 @@ export default function ManagementScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: insets.bottom + 24 },
+          { paddingBottom: tabBarHeight + 16 },
         ]}
         refreshControl={
           <RefreshControl

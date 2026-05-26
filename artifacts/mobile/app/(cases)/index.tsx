@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 
 import { AppHeader } from "@/components/AppHeader";
 import { CaseCard } from "@/components/cases/CaseCard";
@@ -22,6 +23,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 
 export default function CasesScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const user = useAuthStore((state) => state.user);
   const role = user?.role;
   const userId = user?.id;
@@ -131,7 +133,7 @@ export default function CasesScreen() {
           )}
           contentContainerStyle={[
             styles.list,
-            { paddingBottom: insets.bottom + 24 },
+            { paddingBottom: tabBarHeight + 16 },
             visibleCases.length === 0 && styles.emptyList,
           ]}
           refreshControl={
