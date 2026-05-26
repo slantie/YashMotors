@@ -62,10 +62,13 @@ async function takePhoto(): Promise<string | null> {
   return result.assets[0].uri;
 }
 
-async function pickFromGallery(multiple: boolean): Promise<string[]> {
+async function pickFromGallery(
+  multiple: boolean,
+  mediaTypes: ImagePickerLib.MediaType | ImagePickerLib.MediaType[] = "images",
+): Promise<string[]> {
   if (!(await requestGalleryPermission())) return [];
   const result = await ImagePickerLib.launchImageLibraryAsync({
-    mediaTypes: "images",
+    mediaTypes,
     allowsMultipleSelection: multiple,
     quality: 0.85,
   });
@@ -215,12 +218,14 @@ interface AdditionalImagesPickerProps {
   images: string[];
   onImagesChange: (images: string[]) => void;
   maxImages?: number;
+  mediaTypes?: ImagePickerLib.MediaType | ImagePickerLib.MediaType[];
 }
 
 export function AdditionalImagesPicker({
   images,
   onImagesChange,
   maxImages = 10,
+  mediaTypes = "images",
 }: AdditionalImagesPickerProps) {
   const [batchOpen, setBatchOpen] = useState(false);
   const slotsLeft = Math.max(maxImages - images.length, 0);
@@ -229,7 +234,7 @@ export function AdditionalImagesPicker({
     showSourcePicker(
       () => setBatchOpen(true),
       async () => {
-        const uris = await pickFromGallery(true);
+        const uris = await pickFromGallery(true, mediaTypes);
         const next = [...images, ...uris].slice(0, maxImages);
         onImagesChange(next);
       },

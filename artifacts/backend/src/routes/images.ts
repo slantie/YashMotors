@@ -8,7 +8,7 @@ import {
   presignPut,
   presignGet,
   deleteS3Object,
-  isAllowedImageType,
+  isAllowedMediaType,
 } from "../lib/s3.js";
 import { requireAuth, type AuthRequest } from "../middleware/requireAuth.js";
 
@@ -48,8 +48,8 @@ router.post(
       return;
     }
 
-    if (!isAllowedImageType(parsed.data.contentType)) {
-      res.status(400).json({ error: "Unsupported content type. Allowed: jpeg, png, heic, heif, webp" });
+    if (!isAllowedMediaType(parsed.data.contentType)) {
+      res.status(400).json({ error: "Unsupported content type. Allowed: jpeg, png, heic, heif, webp, mp4, quicktime, avi, 3gpp" });
       return;
     }
 
@@ -75,6 +75,7 @@ const confirmItemSchema = z.object({
   key:            z.string().min(1),
   filename:       z.string().min(1),
   folder:         z.enum(["intake", "repairs"]).default("repairs"),
+  mediaType:      z.enum(["image", "video"]).default("image"),
   isPrimary:      z.boolean().default(false),
   timestampClick: z.string().datetime({ offset: true }).optional(),
   lat:            z.number().min(-90).max(90).optional(),
@@ -82,7 +83,7 @@ const confirmItemSchema = z.object({
 });
 
 const confirmSchema = z.object({
-  images: z.array(confirmItemSchema).min(1).max(20).refine(
+  images: z.array(confirmItemSchema).min(1).max(50).refine(
     (imgs) => imgs.filter((i) => i.isPrimary).length <= 1,
     { message: "At most one image per batch can be marked as primary" }
   ),
@@ -124,8 +125,8 @@ router.post(
           caseId:    c.id,
           eventType: "image_uploaded",
           createdBy: userId,
-          message:   `${images.length} image${images.length > 1 ? "s" : ""} uploaded`,
-          metadata:  { count: images.length, folder: images[0].folder },
+          message:   `${images.length} ${images.every(i => i.mediaType === "video") ? "video" : images.some(i => i.mediaType === "video") ? "file" : "image"}${images.length > 1 ? "s" : ""} uploaded`,
+          metadata:  { count: images.length, folder: images[0].folder, mediaTypes: [...new Set(images.map(i => i.mediaType))] },
         })
         .returning();
 
@@ -138,6 +139,7 @@ router.post(
             s3Key:          img.key,
             filename:       img.filename,
             folder:         img.folder,
+            mediaType:      img.mediaType,
             isPrimary:      img.isPrimary,
             timestampClick: img.timestampClick ? new Date(img.timestampClick) : null,
             lat:            img.lat != null ? String(img.lat) : null,

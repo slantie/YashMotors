@@ -17,8 +17,7 @@ const TAB_META: Record<TabName, { icon: keyof typeof Feather.glyphMap; label: st
   settings:   { icon: "settings",    label: "Settings" },
 };
 
-const RADIUS = 24;
-const MARGIN = 16;
+const TOP_RADIUS = 14;
 
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -66,21 +65,23 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   });
 
   return (
-    <View style={[styles.wrapper, { paddingBottom: Math.max(insets.bottom, MARGIN) }]}>
+    <View style={[styles.wrapper, { paddingBottom: insets.bottom }]}>
       {Platform.OS === "ios" ? (
-        /* iOS: shadow View (no overflow:hidden) wraps clip View — keeps shadow visible */
+        /* iOS: shadow View wraps clip View — keeps shadow visible outside clip */
         <View style={styles.shadowIos}>
           <View style={styles.clipIos}>
-            <BlurView tint="systemChromeMaterialLight" intensity={95} style={[styles.bar, styles.barIos]}>
+            <BlurView tint="systemChromeMaterialLight" intensity={95} style={styles.bar}>
               {tabItems}
             </BlurView>
           </View>
         </View>
       ) : (
-        /* Android: single View — elevation shadow renders outside, overflow:hidden clips inside */
-        <View style={styles.androidCard}>
-          <View style={[styles.bar, styles.barAndroid]}>
-            {tabItems}
+        /* Android: outer View for elevation shadow, inner clips active pill */
+        <View style={styles.androidOuter}>
+          <View style={styles.androidInner}>
+            <View style={styles.bar}>
+              {tabItems}
+            </View>
           </View>
         </View>
       )}
@@ -90,32 +91,41 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 
 const styles = StyleSheet.create({
   wrapper: {
-    paddingHorizontal: MARGIN,
-    backgroundColor: "transparent",
+    backgroundColor: colors.surface,
   },
 
+  /* iOS */
   shadowIos: {
-    borderRadius: RADIUS,
+    borderTopLeftRadius: TOP_RADIUS,
+    borderTopRightRadius: TOP_RADIUS,
     shadowColor: "#101828",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
 
   clipIos: {
-    borderRadius: RADIUS,
+    borderTopLeftRadius: TOP_RADIUS,
+    borderTopRightRadius: TOP_RADIUS,
     overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
   },
 
-  androidCard: {
-    borderRadius: RADIUS,
+  /* Android */
+  androidOuter: {
+    borderTopLeftRadius: TOP_RADIUS,
+    borderTopRightRadius: TOP_RADIUS,
+    elevation: 12,
+    backgroundColor: colors.surface,
+  },
+
+  androidInner: {
+    borderTopLeftRadius: TOP_RADIUS,
+    borderTopRightRadius: TOP_RADIUS,
     overflow: "hidden",
-    elevation: 10,
-    backgroundColor: "#FFFFFF",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
   },
 
   bar: {
@@ -123,14 +133,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 8,
     paddingVertical: 8,
-  },
-
-  barIos: {
-    // BlurView handles its own background
-  },
-
-  barAndroid: {
-    // background comes from androidCard
   },
 
   tab: {

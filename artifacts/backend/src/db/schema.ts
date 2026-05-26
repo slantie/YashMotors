@@ -185,6 +185,8 @@ export const caseEventImages = pgTable("case_event_images", {
   filename: text("filename").notNull(),
   // intake | repairs
   folder: text("folder").notNull().default("intake"),
+  // image | video — default image for all existing rows
+  mediaType: text("media_type").notNull().default("image"),
   isPrimary: boolean("is_primary").notNull().default(false),
   // Device-reported click time vs server-confirmed save time
   timestampClick: timestamp("timestamp_click"),

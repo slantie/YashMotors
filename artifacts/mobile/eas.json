@@ -20,12 +20,12 @@
       "extends": "base",
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "http://91.99.113.238:3001" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com" }
     },
     "production": {
       "extends": "base",
       "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "http://91.99.113.238:3001" }
+      "env": { "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com" }
     }
   },
   "submit": {

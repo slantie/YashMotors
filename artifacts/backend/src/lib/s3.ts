@@ -16,18 +16,25 @@ export const s3 = new S3Client({
   },
 });
 
-const ALLOWED_CONTENT_TYPES = new Set([
+const ALLOWED_MEDIA_TYPES = new Set([
   "image/jpeg",
   "image/jpg",
   "image/png",
   "image/heic",
   "image/heif",
   "image/webp",
+  "video/mp4",
+  "video/quicktime",
+  "video/x-msvideo",
+  "video/3gpp",
 ]);
 
-export function isAllowedImageType(contentType: string): boolean {
-  return ALLOWED_CONTENT_TYPES.has(contentType.toLowerCase());
+export function isAllowedMediaType(contentType: string): boolean {
+  return ALLOWED_MEDIA_TYPES.has(contentType.toLowerCase());
 }
+
+/** @deprecated use isAllowedMediaType */
+export const isAllowedImageType = isAllowedMediaType;
 
 /** year/month/day/caseNumber/folder/filename */
 export function makeS3Key(caseNumber: string, folder: string, filename: string): string {

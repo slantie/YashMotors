@@ -2,7 +2,7 @@
   "expo": {
     "name": "Yash Motors",
     "slug": "yashmotors",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "yashmotors",
@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "jsEngine": "hermes",
     "splash": {
-      "image": "./assets/images/icon.png",
+      "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#F5F7FB"
     },
@@ -29,8 +29,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/icon.png",
-        "backgroundColor": "#F5F7FB"
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#486AAE"
       },
       "permissions": [
         "android.permission.CAMERA",

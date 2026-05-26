@@ -1599,6 +1599,11 @@ function ImagesGrid({
               </>
             )}
           </Pressable>
+          {imageList.length > 0 && (
+            <Text style={[styles.imageCount, imageList.length >= 500 && styles.imageCountHigh]}>
+              {imageList.length} {imageList.length >= 500 ? "⚠" : ""}
+            </Text>
+          )}
           {canPrivileged && imageList.length > 0 && (
             <Pressable onPress={() => setSelectMode(true)} style={styles.selectBtn}>
               <Feather name="check-square" size={14} color={colors.textSecondary} />
@@ -2045,6 +2050,15 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.primary,
+  },
+  imageCount: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: colors.textMuted,
+    marginLeft: 4,
+  },
+  imageCountHigh: {
+    color: "#D97706",
   },
   refreshBtn: {
     width: 36,
