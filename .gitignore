@@ -46,6 +46,7 @@ ios/build/
 
 # ── Backend ──────────────────────────────────────────────
 artifacts/backend/dist/
+artifacts/backend/src/db/seed.ts
 
 # ── WhatsApp Baileys Auth ────────────────────────────────
 artifacts/api-server/auth_info_baileys/
