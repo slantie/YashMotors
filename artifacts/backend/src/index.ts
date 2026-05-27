@@ -17,6 +17,7 @@ import whatsappRouter from "./routes/whatsapp.js";
 import notificationsRouter from "./routes/notifications.js";
 import { startWhatsAppWorker } from "./workers/whatsapp.js";
 import { redis } from "./lib/redis.js";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
 const logger = pino({ level: "info" });
 
@@ -28,6 +29,17 @@ const app = express();
 
 app.use(helmet());
 app.use(cors());
+
+// Proxy OCR requests before any body parsers to preserve the multipart stream
+app.use(
+  "/ocr",
+  createProxyMiddleware({
+    target: env.OCR_URL,
+    changeOrigin: true,
+    logger: console,
+  })
+);
+
 app.use(express.json({ limit: "10mb" }));
 app.use(pinoHttp({ logger }));
 

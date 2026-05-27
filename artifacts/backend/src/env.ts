@@ -14,6 +14,7 @@ const schema = z.object({
   REDIS_PORT: z.coerce.number().default(6379),
   WHATSAPP_API_URL: z.string().url().default("http://localhost:8080"),
   WHATSAPP_INTERNAL_SECRET: z.string().optional(),
+  OCR_URL: z.string().url().default("http://ocr:8000"),
 });
 
 const parsed = schema.safeParse(process.env);
