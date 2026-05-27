@@ -20,7 +20,12 @@ const colors = {
   inputBg: "#F8FAFE",
 
   success: "#148A49",
+  successFaint: "#14875014",
   destructive: "#D92D20",
+  destructiveFaint: "#D92D2014",
+  warning: "#B54708",
+  warningFaint: "#B5470814",
+  primaryImageBadge: "#F59E0B",
 
   foreground: "#101828",
   primaryForeground: "#FFFFFF",

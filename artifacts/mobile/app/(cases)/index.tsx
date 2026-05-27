@@ -108,9 +108,15 @@ export default function CasesScreen() {
 
     const sorted = [...all];
     if (sortOrder === "newest") {
-      sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      sorted.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
     } else if (sortOrder === "oldest") {
-      sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      sorted.sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
     } else if (sortOrder === "due-asc") {
       sorted.sort((a, b) => {
         const da = getDueDate(a);
@@ -186,15 +192,26 @@ export default function CasesScreen() {
             <Pressable
               key={f.id}
               onPress={() => setDateFilter(f.id)}
-              style={[styles.filterChip, dateFilter === f.id && styles.filterChipActive]}
+              style={[
+                styles.filterChip,
+                dateFilter === f.id && styles.filterChipActive,
+              ]}
             >
-              <Text style={[styles.filterChipText, dateFilter === f.id && styles.filterChipTextActive]}>
+              <Text
+                style={[
+                  styles.filterChipText,
+                  dateFilter === f.id && styles.filterChipTextActive,
+                ]}
+              >
                 {f.label}
               </Text>
             </Pressable>
           ))}
         </View>
-        <Pressable onPress={() => setSortModalOpen(true)} style={styles.sortBtn}>
+        <Pressable
+          onPress={() => setSortModalOpen(true)}
+          style={styles.sortBtn}
+        >
           <Feather name="sliders" size={14} color={colors.textSecondary} />
         </Pressable>
       </View>
@@ -245,14 +262,16 @@ export default function CasesScreen() {
             <View style={styles.empty}>
               <Feather name="folder" size={34} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>
-                {dateFilter !== "all" ? "No cases match this filter" : "No cases yet"}
+                {dateFilter !== "all"
+                  ? "No cases match this filter"
+                  : "No cases yet"}
               </Text>
               <Text style={styles.emptyText}>
                 {dateFilter !== "all"
                   ? "Try a different date filter."
                   : role === "advisor"
-                  ? "No cases have been assigned to you yet."
-                  : "Create a case when a vehicle enters the workshop."}
+                    ? "No cases have been assigned to you yet."
+                    : "Create a case when a vehicle enters the workshop."}
               </Text>
             </View>
           }
@@ -266,17 +285,31 @@ export default function CasesScreen() {
         animationType="slide"
         onRequestClose={() => setSortModalOpen(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setSortModalOpen(false)} />
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setSortModalOpen(false)}
+        />
         <View style={[styles.sortSheet, { paddingBottom: insets.bottom + 16 }]}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sortTitle}>Sort Cases</Text>
           {SORT_OPTIONS.map((opt) => (
             <Pressable
               key={opt.id}
-              onPress={() => { setSortOrder(opt.id); setSortModalOpen(false); }}
-              style={[styles.sortOption, sortOrder === opt.id && styles.sortOptionActive]}
+              onPress={() => {
+                setSortOrder(opt.id);
+                setSortModalOpen(false);
+              }}
+              style={[
+                styles.sortOption,
+                sortOrder === opt.id && styles.sortOptionActive,
+              ]}
             >
-              <Text style={[styles.sortOptionText, sortOrder === opt.id && styles.sortOptionTextActive]}>
+              <Text
+                style={[
+                  styles.sortOptionText,
+                  sortOrder === opt.id && styles.sortOptionTextActive,
+                ]}
+              >
                 {opt.label}
               </Text>
               {sortOrder === opt.id && (
@@ -395,7 +428,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.45)",
   },
   sortSheet: {
     position: "absolute",

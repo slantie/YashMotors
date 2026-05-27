@@ -38,7 +38,9 @@ export function ImageThumbnail({
       {image.mediaType === "video" ? (
         <View style={styles.videoPlaceholder}>
           <Feather name="play-circle" size={32} color="rgba(255,255,255,0.9)" />
-          <Text style={styles.videoLabel} numberOfLines={1}>{image.filename}</Text>
+          <Text style={styles.videoLabel} numberOfLines={1}>
+            {image.filename}
+          </Text>
         </View>
       ) : (
         <Image source={{ uri: image.url }} style={styles.image} />
@@ -54,8 +56,12 @@ export function ImageThumbnail({
         </View>
       )}
       {selectMode && (
-        <View style={[styles.selectOverlay, selected && styles.selectOverlayActive]}>
-          <View style={[styles.selectCircle, selected && styles.selectCircleActive]}>
+        <View
+          style={[styles.selectOverlay, selected && styles.selectOverlayActive]}
+        >
+          <View
+            style={[styles.selectCircle, selected && styles.selectCircleActive]}
+          >
             {selected && <Feather name="check" size={12} color="#fff" />}
           </View>
         </View>
@@ -103,7 +109,7 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: "#F59E0B",
+    backgroundColor: colors.primaryImageBadge,
     alignItems: "center",
     justifyContent: "center",
   },

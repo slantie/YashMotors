@@ -58,6 +58,9 @@ router.post(
     if (!canAccessCase(role, c.advisorId, userId)) {
       res.status(403).json({ error: "Forbidden" }); return;
     }
+    if (role === "technician" && parsed.data.folder === "intake") {
+      res.status(403).json({ error: "Technicians can only upload to the repairs folder." }); return;
+    }
 
     const key = makeS3Key(String(req.params.caseNumber), parsed.data.folder, parsed.data.filename);
     const uploadUrl = await presignPut(key, parsed.data.contentType);
@@ -83,7 +86,7 @@ const confirmItemSchema = z.object({
 });
 
 const confirmSchema = z.object({
-  images: z.array(confirmItemSchema).min(1).max(50).refine(
+  images: z.array(confirmItemSchema).min(1).max(200).refine(
     (imgs) => imgs.filter((i) => i.isPrimary).length <= 1,
     { message: "At most one image per batch can be marked as primary" }
   ),
@@ -109,6 +112,12 @@ router.post(
     }
 
     const { images } = parsed.data;
+
+    // Check technician upload restriction
+    if (role === "technician" && images.some((img) => img.folder === "intake")) {
+      console.log(`[confirm] technicians cannot upload to intake`);
+      res.status(403).json({ error: "Technicians can only upload to the repairs folder." }); return;
+    }
 
     // Run clear+insert atomically to prevent concurrent uploads leaving multiple primaries
     const { event, inserted } = await db.transaction(async (tx) => {

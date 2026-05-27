@@ -69,7 +69,11 @@ export function CaseCard({ item, onPress, showAdvisor }: CaseCardProps) {
           <View style={styles.topRight}>
             {overdue && (
               <View style={styles.overdueTag}>
-                <Feather name="alert-triangle" size={10} color="#B54708" />
+                <Feather
+                  name="alert-triangle"
+                  size={10}
+                  color={colors.warning}
+                />
                 <Text style={styles.overdueText}>Overdue</Text>
               </View>
             )}
@@ -106,15 +110,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     padding: 12,
     overflow: "hidden",
   },
   cardOverdue: {
-    borderColor: "#B54708" + "55",
-    backgroundColor: "#B54708" + "04",
+    borderColor: colors.warning + "55",
+    backgroundColor: colors.warning + "04",
   },
   pressed: { opacity: 0.78 },
 
@@ -155,7 +159,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    backgroundColor: "#B54708" + "15",
+    backgroundColor: colors.warningFaint,
     borderRadius: 5,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -164,7 +168,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
-    color: "#B54708",
+    color: colors.warning,
   },
   caseNumber: {
     fontSize: 12,

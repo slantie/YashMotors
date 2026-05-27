@@ -6,17 +6,26 @@ import colors from "@/constants/colors";
 interface ToastProps {
   message: string;
   visible: boolean;
+  bottomOffset?: number;
 }
 
-export function Toast({ message, visible }: ToastProps) {
+export function Toast({ message, visible, bottomOffset = 100 }: ToastProps) {
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
         Animated.delay(1600),
-        Animated.timing(opacity, { toValue: 0, duration: 220, useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: true,
+        }),
       ]).start();
     } else {
       opacity.setValue(0);
@@ -24,7 +33,10 @@ export function Toast({ message, visible }: ToastProps) {
   }, [visible, message]);
 
   return (
-    <Animated.View style={[styles.container, { opacity }]} pointerEvents="none">
+    <Animated.View
+      style={[styles.container, { opacity, bottom: bottomOffset }]}
+      pointerEvents="none"
+    >
       <Text style={styles.text}>{message}</Text>
     </Animated.View>
   );

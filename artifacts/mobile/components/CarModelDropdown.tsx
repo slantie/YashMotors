@@ -9,7 +9,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -133,13 +132,13 @@ export function CarModelDropdown({
                 data={filtered}
                 keyExtractor={(item) => item}
                 renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[
+                  <Pressable
+                    style={({ pressed }) => [
                       styles.item,
                       value === item && styles.itemSelected,
+                      pressed && styles.itemPressed,
                     ]}
                     onPress={() => select(item)}
-                    activeOpacity={0.7}
                   >
                     <Text
                       style={[
@@ -152,25 +151,35 @@ export function CarModelDropdown({
                     {value === item && (
                       <Feather name="check" size={16} color={colors.primary} />
                     )}
-                  </TouchableOpacity>
+                  </Pressable>
                 )}
                 ListFooterComponent={
                   showCustomOption ? (
                     <>
                       {filtered.length > 0 && <View style={styles.separator} />}
-                      <TouchableOpacity
-                        style={styles.customOption}
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.customOption,
+                          pressed && styles.itemPressed,
+                        ]}
                         onPress={() => select(q)}
-                        activeOpacity={0.7}
                       >
                         <View style={styles.customIconWrap}>
-                          <Feather name="plus" size={14} color={colors.primary} />
+                          <Feather
+                            name="plus"
+                            size={14}
+                            color={colors.primary}
+                          />
                         </View>
                         <View style={styles.customTextWrap}>
-                          <Text style={styles.customLabel}>Use custom model</Text>
-                          <Text style={styles.customValue}>{toTitleCase(q)}</Text>
+                          <Text style={styles.customLabel}>
+                            Use custom model
+                          </Text>
+                          <Text style={styles.customValue}>
+                            {toTitleCase(q)}
+                          </Text>
                         </View>
-                      </TouchableOpacity>
+                      </Pressable>
                     </>
                   ) : null
                 }
@@ -240,7 +249,7 @@ const styles = StyleSheet.create({
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.45)",
   },
   sheet: {
     backgroundColor: colors.surface,
@@ -282,6 +291,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
+    height: 42,
     color: colors.text,
     fontSize: 15,
     fontFamily: "PlusJakartaSans_400Regular",
@@ -308,6 +318,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontFamily: "PlusJakartaSans_600SemiBold",
   },
+  itemPressed: { opacity: 0.78 },
   separator: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,

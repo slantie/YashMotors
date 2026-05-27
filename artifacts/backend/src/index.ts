@@ -4,7 +4,9 @@ import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import pino from "pino";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { env } from "./env.js";
+import { db } from "./db/client.js";
 import authRouter from "./routes/auth.js";
 import usersRouter from "./routes/users.js";
 import departmentsRouter from "./routes/departments.js";
@@ -17,6 +19,11 @@ import { startWhatsAppWorker } from "./workers/whatsapp.js";
 import { redis } from "./lib/redis.js";
 
 const logger = pino({ level: "info" });
+
+logger.info("Running database migrations...");
+await migrate(db, { migrationsFolder: "./drizzle" });
+logger.info("Migrations complete.");
+
 const app = express();
 
 app.use(helmet());

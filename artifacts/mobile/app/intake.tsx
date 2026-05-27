@@ -11,7 +11,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -133,18 +132,26 @@ export default function IntakeScreen() {
         showBack
         rightElement={
           <View style={styles.headerActions}>
-            <TouchableOpacity
+            <Pressable
               onPress={() => router.push("/(tabs)/cases")}
+              style={({ pressed }) => [
+                styles.headerIconBtn,
+                pressed && { opacity: 0.78 },
+              ]}
               hitSlop={8}
             >
               <Feather name="folder" size={20} color={colors.textMuted} />
-            </TouchableOpacity>
-            <TouchableOpacity
+            </Pressable>
+            <Pressable
               onPress={() => router.push("/(tabs)/settings")}
+              style={({ pressed }) => [
+                styles.headerIconBtn,
+                pressed && { opacity: 0.78 },
+              ]}
               hitSlop={8}
             >
               <Feather name="settings" size={20} color={colors.textSecondary} />
-            </TouchableOpacity>
+            </Pressable>
           </View>
         }
       />
@@ -173,7 +180,9 @@ export default function IntakeScreen() {
             <Text style={styles.hintText}>Required for plate scan</Text>
             <AdditionalImagesPicker
               media={formData.additionalImages}
-              onMediaChange={(items) => setFormData({ additionalImages: items })}
+              onMediaChange={(items) =>
+                setFormData({ additionalImages: items })
+              }
             />
           </View>
 
@@ -365,7 +374,15 @@ const styles = StyleSheet.create({
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 8,
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.primaryFaint,
   },
   section: {
     backgroundColor: colors.surface,

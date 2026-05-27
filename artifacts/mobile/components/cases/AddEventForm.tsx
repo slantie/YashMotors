@@ -33,8 +33,11 @@ export function AddEventForm({
   onSuccess,
 }: AddEventFormProps) {
   const queryClient = useQueryClient();
-  const canPostCustomer = role === "superadmin" || role === "admin" || role === "advisor";
-  const [eventType, setEventType] = useState<"technician_update" | "customer_update">("technician_update");
+  const canPostCustomer =
+    role === "superadmin" || role === "admin" || role === "advisor";
+  const [eventType, setEventType] = useState<
+    "technician_update" | "customer_update"
+  >("technician_update");
   const [message, setMessage] = useState("");
 
   const mutation = useMutation({
@@ -170,7 +173,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   typeChipTextActive: {
-    color: "#fff",
+    color: colors.primaryForeground,
   },
   fixedType: {
     fontSize: 12,
@@ -181,7 +184,7 @@ const styles = StyleSheet.create({
   },
   textInput: {
     minHeight: 90,
-    borderRadius: 12,
+    borderRadius: colors.radius,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.inputBg,
@@ -206,7 +209,7 @@ const styles = StyleSheet.create({
     color: colors.destructive,
   },
   submitBtn: {
-    height: 42,
+    height: 44,
     borderRadius: 10,
     backgroundColor: colors.primary,
     paddingHorizontal: 20,
@@ -218,7 +221,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
-    color: "#fff",
+    color: colors.primaryForeground,
   },
   error: {
     fontSize: 12,

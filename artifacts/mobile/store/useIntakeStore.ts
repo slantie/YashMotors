@@ -21,16 +21,26 @@ export interface IntakeFormData {
   serviceSubType: ServiceSubType | "";
 }
 
+export interface UploadProgress {
+  caseNumber: string;
+  done: number;
+  total: number;
+  phase: "uploading" | "done" | "failed";
+  failedCount: number;
+}
+
 interface IntakeStore {
   formData: IntakeFormData;
   vehicleNumber: string;
   createdCaseNumber: string | null;
   selectedSharingImages: string[];
+  uploadProgress: UploadProgress | null;
   hydrated: boolean;
   setFormData: (data: Partial<IntakeFormData>) => void;
   setVehicleNumber: (vn: string) => void;
   setCreatedCaseNumber: (caseNumber: string | null) => void;
   setSelectedSharingImages: (images: string[]) => void;
+  setUploadProgress: (p: UploadProgress | null) => void;
   setHydrated: (v: boolean) => void;
   reset: () => void;
 }
@@ -56,6 +66,7 @@ export const useIntakeStore = create<IntakeStore>()(
       vehicleNumber: "",
       createdCaseNumber: null,
       selectedSharingImages: [],
+      uploadProgress: null,
       hydrated: false,
       setFormData: (data) =>
         set((state) => ({ formData: { ...state.formData, ...data } })),
@@ -63,6 +74,7 @@ export const useIntakeStore = create<IntakeStore>()(
       setCreatedCaseNumber: (createdCaseNumber) => set({ createdCaseNumber }),
       setSelectedSharingImages: (selectedSharingImages) =>
         set({ selectedSharingImages }),
+      setUploadProgress: (uploadProgress) => set({ uploadProgress }),
       setHydrated: (hydrated) => set({ hydrated }),
       reset: () =>
         set({
@@ -70,6 +82,7 @@ export const useIntakeStore = create<IntakeStore>()(
           vehicleNumber: "",
           createdCaseNumber: null,
           selectedSharingImages: [],
+          uploadProgress: null,
         }),
     }),
     {

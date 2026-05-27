@@ -1,5 +1,10 @@
 import { Feather } from "@expo/vector-icons";
-import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+} from "@tanstack/react-query";
 import Constants from "expo-constants";
 import * as Haptics from "expo-haptics";
 import * as ImagePickerLib from "expo-image-picker";
@@ -27,7 +32,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ImageViewing from "react-native-image-viewing";
 import { VideoView, useVideoPlayer } from "expo-video";
 
-let RNShare: { open: (opts: Record<string, unknown>) => Promise<void> } | null = null;
+let RNShare: { open: (opts: Record<string, unknown>) => Promise<void> } | null =
+  null;
 try {
   RNShare = require("react-native-share").default;
 } catch {
@@ -62,6 +68,7 @@ import {
   type ConfirmImageItem,
 } from "@/services/caseEvents";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useIntakeStore } from "@/store/useIntakeStore";
 import { useCaseImages } from "@/hooks/useCaseImages";
 import { useToast } from "@/hooks/useToast";
 import { useWhatsAppStatus } from "@/hooks/useWhatsAppStatus";
@@ -103,7 +110,12 @@ const TECHNICIAN_STATUSES: InternalStatus[] = [
   "ready",
 ];
 
-const TECH_TIMELINE_EVENTS = ["intake_created", "internal_status_change", "image_uploaded", "case_transferred"];
+const TECH_TIMELINE_EVENTS = [
+  "intake_created",
+  "internal_status_change",
+  "image_uploaded",
+  "case_transferred",
+];
 
 const CUSTOMER_STATUSES: CustomerStatus[] = [
   "received",
@@ -156,7 +168,9 @@ function VideoViewerContent({ url }: { url: string }) {
 export default function CaseDetailScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ caseNumber: string }>();
-  const caseNumber = Array.isArray(params.caseNumber) ? params.caseNumber[0] : params.caseNumber;
+  const caseNumber = Array.isArray(params.caseNumber)
+    ? params.caseNumber[0]
+    : params.caseNumber;
   const role = useAuthStore((state) => state.user?.role);
   const isAdmin = role === "superadmin" || role === "admin";
   const isPrivileged = isAdmin || role === "advisor";
@@ -164,18 +178,28 @@ export default function CaseDetailScreen() {
   const canUpdate = isPrivileged;
   const canUpdateInternal = isPrivileged || isTechnician;
   const queryClient = useQueryClient();
+  const uploadProgress = useIntakeStore((state) => state.uploadProgress);
 
   const [internalOpen, setInternalOpen] = useState(false);
   const [customerOpen, setCustomerOpen] = useState(false);
-  const [selectedInternal, setSelectedInternal] = useState<InternalStatus>("intake");
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerStatus>("received");
+  const [selectedInternal, setSelectedInternal] =
+    useState<InternalStatus>("intake");
+  const [selectedCustomer, setSelectedCustomer] =
+    useState<CustomerStatus>("received");
   const [note, setNote] = useState("");
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
-  const [imageFolder, setImageFolder] = useState<"intake" | "repairs">(role === "technician" ? "repairs" : "intake");
-  const [imageViewerState, setImageViewerState] = useState<{ images: CaseEventImage[]; startIndex: number } | null>(null);
-  const [videoViewerItem, setVideoViewerItem] = useState<CaseEventImage | null>(null);
+  const [imageFolder, setImageFolder] = useState<"intake" | "repairs">(
+    role === "technician" ? "repairs" : "intake",
+  );
+  const [imageViewerState, setImageViewerState] = useState<{
+    images: CaseEventImage[];
+    startIndex: number;
+  } | null>(null);
+  const [videoViewerItem, setVideoViewerItem] = useState<CaseEventImage | null>(
+    null,
+  );
   const [downloadingImage, setDownloadingImage] = useState(false);
   const canEditCase = isPrivileged;
   const canUseWhatsApp = isPrivileged;
@@ -202,12 +226,21 @@ export default function CaseDetailScreen() {
   });
 
   const events = useMemo(
-    () => [...(caseQuery.data?.events ?? [])].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-    [caseQuery.data?.events]
+    () =>
+      [...(caseQuery.data?.events ?? [])].sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+    [caseQuery.data?.events],
   );
 
   const internalMutation = useMutation({
-    mutationFn: () => updateInternalStatus(caseNumber, selectedInternal, note.trim() || undefined),
+    mutationFn: () =>
+      updateInternalStatus(
+        caseNumber,
+        selectedInternal,
+        note.trim() || undefined,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
       queryClient.invalidateQueries({ queryKey: ["cases"] });
@@ -239,7 +272,11 @@ export default function CaseDetailScreen() {
 
   const handleEditSave = () => {
     if (!editForm.vehicleNumber?.trim() || !editForm.carModel?.trim()) return;
-    const ENUM_FIELDS = ["customerArrivalStatus", "serviceType", "serviceSubType"] as const;
+    const ENUM_FIELDS = [
+      "customerArrivalStatus",
+      "serviceType",
+      "serviceSubType",
+    ] as const;
     const patch: Record<string, string | null> = { ...editForm };
     for (const f of ENUM_FIELDS) {
       if (patch[f] === "") patch[f] = null;
@@ -258,10 +295,17 @@ export default function CaseDetailScreen() {
     if (data.customerPhone) lines.push(`Phone: ${data.customerPhone}`);
     if (data.kmCount) lines.push(`KM: ${data.kmCount}`);
     if (data.dueDate) lines.push(`Due: ${data.dueDate}`);
-    if (data.customerArrivalStatus) lines.push(`Arrival: ${ARRIVAL_LABELS[data.customerArrivalStatus] ?? data.customerArrivalStatus}`);
+    if (data.customerArrivalStatus)
+      lines.push(
+        `Arrival: ${ARRIVAL_LABELS[data.customerArrivalStatus] ?? data.customerArrivalStatus}`,
+      );
     if (data.serviceType) {
-      const sub = data.serviceSubType ? ` — ${SERVICE_SUB_LABELS[data.serviceSubType] ?? data.serviceSubType}` : "";
-      lines.push(`Service: ${data.serviceType === "service" ? `Service${sub}` : "Repair"}`);
+      const sub = data.serviceSubType
+        ? ` — ${SERVICE_SUB_LABELS[data.serviceSubType] ?? data.serviceSubType}`
+        : "";
+      lines.push(
+        `Service: ${data.serviceType === "service" ? `Service${sub}` : "Repair"}`,
+      );
     }
     lines.push(`Internal: ${statusLabel(data.internalStatus)}`);
     lines.push(`Customer: ${statusLabel(data.customerStatus)}`);
@@ -271,13 +315,8 @@ export default function CaseDetailScreen() {
   };
 
   const createGroupMutation = useMutation({
-    mutationFn: ({
-      phone,
-      msg,
-    }: {
-      phone: string;
-      msg?: string;
-    }) => createWhatsAppGroup(caseNumber, phone, msg),
+    mutationFn: ({ phone, msg }: { phone: string; msg?: string }) =>
+      createWhatsAppGroup(caseNumber, phone, msg),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setWaInitiated(true);
@@ -287,14 +326,13 @@ export default function CaseDetailScreen() {
     onError: (err) => {
       Alert.alert(
         "Error",
-        err instanceof Error ? err.message : "Failed to create group."
+        err instanceof Error ? err.message : "Failed to create group.",
       );
     },
   });
 
   const sendMsgMutation = useMutation({
-    mutationFn: (message: string) =>
-      sendWhatsAppMessage(caseNumber, message),
+    mutationFn: (message: string) => sendWhatsAppMessage(caseNumber, message),
     onSuccess: () => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setWaSendOpen(false);
@@ -302,21 +340,22 @@ export default function CaseDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
       Alert.alert(
         "Message queued",
-        "Your update will be sent to the group. Check the timeline to confirm delivery."
+        "Your update will be sent to the group. Check the timeline to confirm delivery.",
       );
     },
     onError: (err) => {
       Alert.alert(
         "Error",
-        err instanceof Error ? err.message : "Failed to send message."
+        err instanceof Error ? err.message : "Failed to send message.",
       );
     },
   });
 
-
   const [submitDone, setSubmitDone] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
-  const [transferAdvisorId, setTransferAdvisorId] = useState<number | null>(null);
+  const [transferAdvisorId, setTransferAdvisorId] = useState<number | null>(
+    null,
+  );
   const [transferNote, setTransferNote] = useState("");
 
   const notifyMutation = useMutation({
@@ -327,7 +366,10 @@ export default function CaseDetailScreen() {
       queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
     },
     onError: (err) => {
-      Alert.alert("Error", err instanceof Error ? err.message : "Failed to notify advisor.");
+      Alert.alert(
+        "Error",
+        err instanceof Error ? err.message : "Failed to notify advisor.",
+      );
     },
   });
 
@@ -341,7 +383,7 @@ export default function CaseDetailScreen() {
           text: "Submit",
           onPress: () => notifyMutation.mutate(),
         },
-      ]
+      ],
     );
   };
 
@@ -353,12 +395,26 @@ export default function CaseDetailScreen() {
       router.replace("/(cases)");
     },
     onError: (err) => {
-      Alert.alert("Error", err instanceof Error ? err.message : "Failed to delete case.");
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      if (msg.includes("not found")) {
+        queryClient.invalidateQueries({ queryKey: ["cases"] });
+        router.replace("/(cases)");
+        return;
+      }
+      Alert.alert(
+        "Error",
+        err instanceof Error ? err.message : "Failed to delete case.",
+      );
     },
   });
 
   const transferMutation = useMutation({
-    mutationFn: () => transferCase(caseNumber, transferAdvisorId!, transferNote.trim() || undefined),
+    mutationFn: () =>
+      transferCase(
+        caseNumber,
+        transferAdvisorId!,
+        transferNote.trim() || undefined,
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
       queryClient.invalidateQueries({ queryKey: ["cases"] });
@@ -368,11 +424,15 @@ export default function CaseDetailScreen() {
       setTransferNote("");
     },
     onError: (err) => {
-      Alert.alert("Error", err instanceof Error ? err.message : "Transfer failed.");
+      Alert.alert(
+        "Error",
+        err instanceof Error ? err.message : "Transfer failed.",
+      );
     },
   });
 
   const handleDeleteCase = () => {
+    if (deleteMutation.isPending) return;
     Alert.alert(
       "Delete Case",
       `Permanently delete case ${caseNumber}? All events, images, and data will be lost.`,
@@ -381,9 +441,11 @@ export default function CaseDetailScreen() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => deleteMutation.mutate(),
+          onPress: () => {
+            if (!deleteMutation.isPending) deleteMutation.mutate();
+          },
         },
-      ]
+      ],
     );
   };
 
@@ -394,7 +456,7 @@ export default function CaseDetailScreen() {
       Alert.alert(
         "Dev Build Required",
         "Saving to the photo library is not supported in Expo Go due to Android 13+ permission restrictions. Build a development build with EAS to enable this feature.",
-        [{ text: "OK" }]
+        [{ text: "OK" }],
       );
       return;
     }
@@ -402,7 +464,10 @@ export default function CaseDetailScreen() {
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission denied", "Allow photo library access in Settings to save images.");
+        Alert.alert(
+          "Permission denied",
+          "Allow photo library access in Settings to save images.",
+        );
         return;
       }
       const ext = image.url.split("?")[0].split(".").pop() ?? "jpg";
@@ -412,7 +477,10 @@ export default function CaseDetailScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert("Saved", `"${image.filename}" saved to photo library.`);
     } catch (e) {
-      Alert.alert("Download failed", e instanceof Error ? e.message : "Could not save image.");
+      Alert.alert(
+        "Download failed",
+        e instanceof Error ? e.message : "Could not save image.",
+      );
     } finally {
       setDownloadingImage(false);
     }
@@ -422,8 +490,44 @@ export default function CaseDetailScreen() {
 
   return (
     <View style={styles.root}>
-      <AppHeader title={caseNumber ?? "Case"} subtitle={data?.vehicleNumber} showBack />
+      <AppHeader
+        title={caseNumber ?? "Case"}
+        subtitle={data?.vehicleNumber}
+        showBack
+      />
       <Toast message={toastMsg} visible={toastVisible} />
+      {uploadProgress?.caseNumber === caseNumber && uploadProgress && (
+        <View
+          style={[
+            styles.uploadBanner,
+            uploadProgress.phase === "failed" && styles.uploadBannerFailed,
+            uploadProgress.phase === "done" && styles.uploadBannerDone,
+          ]}
+        >
+          <ActivityIndicator
+            color={
+              uploadProgress.phase === "failed"
+                ? colors.destructive
+                : uploadProgress.phase === "done"
+                  ? colors.success
+                  : colors.primary
+            }
+            size="small"
+          />
+          <Text
+            style={[
+              styles.uploadBannerText,
+              uploadProgress.phase === "failed" && styles.uploadBannerTextFail,
+            ]}
+          >
+            {uploadProgress.phase === "uploading"
+              ? `Uploading photos… ${uploadProgress.done}/${uploadProgress.total}`
+              : uploadProgress.phase === "failed"
+                ? `Upload done — ${uploadProgress.failedCount} failed`
+                : "Photos uploaded"}
+          </Text>
+        </View>
+      )}
       {caseQuery.isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.primary} />
@@ -431,25 +535,51 @@ export default function CaseDetailScreen() {
       ) : caseQuery.isError || !data ? (
         <View style={styles.center}>
           {(() => {
-            const msg = caseQuery.error instanceof Error ? caseQuery.error.message.toLowerCase() : "";
+            const msg =
+              caseQuery.error instanceof Error
+                ? caseQuery.error.message.toLowerCase()
+                : "";
             const isNotFound = msg.includes("not found") || msg.includes("404");
             return (
               <>
-                <Feather name={isNotFound ? "folder-minus" : "alert-circle"} size={36} color={colors.textMuted} style={{ marginBottom: 12 }} />
-                <Text style={styles.emptyTitle}>{isNotFound ? "Case Not Found" : "Could not load case"}</Text>
+                <Feather
+                  name={isNotFound ? "folder-minus" : "alert-circle"}
+                  size={36}
+                  color={colors.textMuted}
+                  style={{ marginBottom: 12 }}
+                />
+                <Text style={styles.emptyTitle}>
+                  {isNotFound ? "Case Not Found" : "Could not load case"}
+                </Text>
                 <Text style={styles.emptyText}>
                   {isNotFound
                     ? "This case may have been deleted."
-                    : caseQuery.error instanceof Error ? caseQuery.error.message : "Please try again."}
+                    : caseQuery.error instanceof Error
+                      ? caseQuery.error.message
+                      : "Please try again."}
                 </Text>
                 {isNotFound ? (
-                  <Pressable onPress={() => router.replace("/(cases)")} style={styles.retryBtn}>
-                    <Feather name="arrow-left" size={14} color={colors.primary} />
+                  <Pressable
+                    onPress={() => router.replace("/(cases)")}
+                    style={styles.retryBtn}
+                  >
+                    <Feather
+                      name="arrow-left"
+                      size={14}
+                      color={colors.primary}
+                    />
                     <Text style={styles.retryText}>Back to Cases</Text>
                   </Pressable>
                 ) : (
-                  <Pressable onPress={() => caseQuery.refetch()} style={styles.retryBtn}>
-                    <Feather name="refresh-cw" size={14} color={colors.primary} />
+                  <Pressable
+                    onPress={() => caseQuery.refetch()}
+                    style={styles.retryBtn}
+                  >
+                    <Feather
+                      name="refresh-cw"
+                      size={14}
+                      color={colors.primary}
+                    />
                     <Text style={styles.retryText}>Retry</Text>
                   </Pressable>
                 )}
@@ -460,7 +590,10 @@ export default function CaseDetailScreen() {
       ) : (
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: insets.bottom + 24 },
+          ]}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.heroCard}>
@@ -469,7 +602,9 @@ export default function CaseDetailScreen() {
             <Text style={styles.model}>{toTitleCase(data.carModel)}</Text>
             <View style={styles.badgeRow}>
               <StatusBadge status={data.internalStatus} type="internal" />
-              {!isTechnician && <StatusBadge status={data.customerStatus} type="customer" />}
+              {!isTechnician && (
+                <StatusBadge status={data.customerStatus} type="customer" />
+              )}
             </View>
           </View>
 
@@ -478,9 +613,14 @@ export default function CaseDetailScreen() {
               {/* 1 — Update stage */}
               <StatusSection
                 title="Internal Status"
-                status={<StatusBadge status={data.internalStatus} type="internal" />}
+                status={
+                  <StatusBadge status={data.internalStatus} type="internal" />
+                }
                 canUpdate={canUpdateInternal}
-                onUpdate={() => { setSelectedInternal(data.internalStatus); setInternalOpen(true); }}
+                onUpdate={() => {
+                  setSelectedInternal(data.internalStatus);
+                  setInternalOpen(true);
+                }}
               />
 
               {/* 2 — Photos */}
@@ -488,17 +628,33 @@ export default function CaseDetailScreen() {
                 <View style={styles.tabRow}>
                   <Pressable
                     onPress={() => setImageFolder("intake")}
-                    style={[styles.tab, imageFolder === "intake" && styles.tabActive]}
+                    style={[
+                      styles.tab,
+                      imageFolder === "intake" && styles.tabActive,
+                    ]}
                   >
-                    <Text style={[styles.tabText, imageFolder === "intake" && styles.tabTextActive]}>
+                    <Text
+                      style={[
+                        styles.tabText,
+                        imageFolder === "intake" && styles.tabTextActive,
+                      ]}
+                    >
                       Intake Photos
                     </Text>
                   </Pressable>
                   <Pressable
                     onPress={() => setImageFolder("repairs")}
-                    style={[styles.tab, imageFolder === "repairs" && styles.tabActive]}
+                    style={[
+                      styles.tab,
+                      imageFolder === "repairs" && styles.tabActive,
+                    ]}
                   >
-                    <Text style={[styles.tabText, imageFolder === "repairs" && styles.tabTextActive]}>
+                    <Text
+                      style={[
+                        styles.tabText,
+                        imageFolder === "repairs" && styles.tabTextActive,
+                      ]}
+                    >
                       Repair Photos
                     </Text>
                   </Pressable>
@@ -507,14 +663,22 @@ export default function CaseDetailScreen() {
                   caseNumber={caseNumber}
                   folder={imageFolder}
                   role={role}
+                  canUpload={!isTechnician || imageFolder === "repairs"}
                   onImageView={(imgs, idx) => {
                     const item = imgs[idx];
                     if (item.mediaType === "video") {
                       setVideoViewerItem(item);
                     } else {
-                      const onlyImages = imgs.filter((m) => m.mediaType !== "video");
-                      const startIndex = onlyImages.findIndex((m) => m.id === item.id);
-                      setImageViewerState({ images: onlyImages, startIndex: Math.max(0, startIndex) });
+                      const onlyImages = imgs.filter(
+                        (m) => m.mediaType !== "video",
+                      );
+                      const startIndex = onlyImages.findIndex(
+                        (m) => m.id === item.id,
+                      );
+                      setImageViewerState({
+                        images: onlyImages,
+                        startIndex: Math.max(0, startIndex),
+                      });
                     }
                   }}
                 />
@@ -532,7 +696,9 @@ export default function CaseDetailScreen() {
               {/* 4 — Timeline */}
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Timeline</Text>
-                {events.filter((e) => TECH_TIMELINE_EVENTS.includes(e.eventType)).length === 0 ? (
+                {events.filter((e) =>
+                  TECH_TIMELINE_EVENTS.includes(e.eventType),
+                ).length === 0 ? (
                   <Text style={styles.emptyText}>No events yet.</Text>
                 ) : (
                   events
@@ -542,18 +708,32 @@ export default function CaseDetailScreen() {
                         <View style={styles.eventDot} />
                         <View style={styles.eventBody}>
                           <View style={styles.eventHeader}>
-                            <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
+                            <Text style={styles.eventType}>
+                              {statusLabel(event.eventType)}
+                            </Text>
                             {event.createdByName ? (
-                              <Text style={styles.eventCreator} numberOfLines={1}>{event.createdByName}</Text>
+                              <Text
+                                style={styles.eventCreator}
+                                numberOfLines={1}
+                              >
+                                {event.createdByName}
+                              </Text>
                             ) : null}
                           </View>
-                          {(event.metadata?.from != null || event.metadata?.to != null) && (
+                          {(event.metadata?.from != null ||
+                            event.metadata?.to != null) && (
                             <Text style={styles.eventFromTo}>
-                              {statusLabel(String(event.metadata?.from ?? ""))} → {statusLabel(String(event.metadata?.to ?? ""))}
+                              {event.eventType === "case_transferred"
+                                ? `${String(event.metadata?.fromName ?? event.metadata?.from ?? "")} → ${String(event.metadata?.toName ?? event.metadata?.to ?? "")}`
+                                : `${statusLabel(String(event.metadata?.from ?? ""))} → ${statusLabel(String(event.metadata?.to ?? ""))}`}
                             </Text>
                           )}
-                          {event.message ? <Text style={styles.eventMsg}>{event.message}</Text> : null}
-                          <Text style={styles.eventTime}>{formatDate(event.createdAt)}</Text>
+                          {event.message ? (
+                            <Text style={styles.eventMsg}>{event.message}</Text>
+                          ) : null}
+                          <Text style={styles.eventTime}>
+                            {formatDate(event.createdAt)}
+                          </Text>
                         </View>
                       </View>
                     ))
@@ -564,14 +744,19 @@ export default function CaseDetailScreen() {
               <Pressable
                 onPress={handleSubmitToAdvisor}
                 disabled={notifyMutation.isPending || submitDone}
-                style={[styles.submitBtn, (notifyMutation.isPending || submitDone) && styles.disabled]}
+                style={[
+                  styles.submitBtn,
+                  (notifyMutation.isPending || submitDone) && styles.disabled,
+                ]}
               >
                 {notifyMutation.isPending ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : submitDone ? (
                   <>
                     <Feather name="check" size={15} color="#fff" />
-                    <Text style={styles.submitBtnText}>Submitted to Advisor</Text>
+                    <Text style={styles.submitBtnText}>
+                      Submitted to Advisor
+                    </Text>
                   </>
                 ) : (
                   <>
@@ -605,24 +790,42 @@ export default function CaseDetailScreen() {
                 <Info label="Delivery Type" value={data.deliveryType} />
                 <Info label="Customer Phone" value={data.customerPhone} />
                 {data.customerArrivalStatus ? (
-                  <Info label="Arrival Status" value={ARRIVAL_LABELS[data.customerArrivalStatus] ?? data.customerArrivalStatus} />
+                  <Info
+                    label="Arrival Status"
+                    value={
+                      ARRIVAL_LABELS[data.customerArrivalStatus] ??
+                      data.customerArrivalStatus
+                    }
+                  />
                 ) : null}
                 {data.serviceType ? (
-                  <Info label="Service Type" value={
-                    data.serviceType === "service"
-                      ? `Service${data.serviceSubType ? ` — ${SERVICE_SUB_LABELS[data.serviceSubType] ?? data.serviceSubType}` : ""}`
-                      : "Repair"
-                  } />
+                  <Info
+                    label="Service Type"
+                    value={
+                      data.serviceType === "service"
+                        ? `Service${data.serviceSubType ? ` — ${SERVICE_SUB_LABELS[data.serviceSubType] ?? data.serviceSubType}` : ""}`
+                        : "Repair"
+                    }
+                  />
                 ) : null}
-                <Info label="Advisor" value={`${data.advisor.name} (${data.advisor.phone})`} />
+                <Info
+                  label="Advisor"
+                  value={`${data.advisor.name} (${data.advisor.phone})`}
+                />
                 <Info label="Created" value={formatDate(data.createdAt)} />
                 {data.notes ? <Info label="Notes" value={data.notes} /> : null}
                 <Pressable
                   onPress={handleShareCaseInternally}
                   style={styles.shareInternalBtn}
                 >
-                  <Feather name="share-2" size={13} color={colors.textSecondary} />
-                  <Text style={styles.shareInternalText}>Share Case Details</Text>
+                  <Feather
+                    name="share-2"
+                    size={13}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.shareInternalText}>
+                    Share Case Details
+                  </Text>
                 </Pressable>
                 {canEditCase && (
                   <Pressable
@@ -652,17 +855,27 @@ export default function CaseDetailScreen() {
               {/* Internal status */}
               <StatusSection
                 title="Internal Status"
-                status={<StatusBadge status={data.internalStatus} type="internal" />}
+                status={
+                  <StatusBadge status={data.internalStatus} type="internal" />
+                }
                 canUpdate={canUpdateInternal}
-                onUpdate={() => { setSelectedInternal(data.internalStatus); setInternalOpen(true); }}
+                onUpdate={() => {
+                  setSelectedInternal(data.internalStatus);
+                  setInternalOpen(true);
+                }}
               />
 
               {/* Customer status */}
               <StatusSection
                 title="Customer Status"
-                status={<StatusBadge status={data.customerStatus} type="customer" />}
+                status={
+                  <StatusBadge status={data.customerStatus} type="customer" />
+                }
                 canUpdate={canUpdate}
-                onUpdate={() => { setSelectedCustomer(data.customerStatus); setCustomerOpen(true); }}
+                onUpdate={() => {
+                  setSelectedCustomer(data.customerStatus);
+                  setCustomerOpen(true);
+                }}
               />
 
               {/* Timeline */}
@@ -676,42 +889,72 @@ export default function CaseDetailScreen() {
                       <View style={styles.eventDot} />
                       <View style={styles.eventBody}>
                         <View style={styles.eventHeader}>
-                          <Text style={styles.eventType}>{statusLabel(event.eventType)}</Text>
+                          <Text style={styles.eventType}>
+                            {statusLabel(event.eventType)}
+                          </Text>
                           {event.createdByName ? (
-                            <Text style={styles.eventCreator} numberOfLines={1}>{event.createdByName}</Text>
+                            <Text style={styles.eventCreator} numberOfLines={1}>
+                              {event.createdByName}
+                            </Text>
                           ) : null}
                         </View>
-                        {(event.metadata?.from != null || event.metadata?.to != null) && (
+                        {(event.metadata?.from != null ||
+                          event.metadata?.to != null) && (
                           <Text style={styles.eventFromTo}>
-                            {statusLabel(String(event.metadata?.from ?? ""))} → {statusLabel(String(event.metadata?.to ?? ""))}
+                            {statusLabel(String(event.metadata?.from ?? ""))} →{" "}
+                            {statusLabel(String(event.metadata?.to ?? ""))}
                           </Text>
                         )}
-                        {event.message ? <Text style={styles.eventMsg}>{event.message}</Text> : null}
-                        <Text style={styles.eventTime}>{formatDate(event.createdAt)}</Text>
+                        {event.message ? (
+                          <Text style={styles.eventMsg}>{event.message}</Text>
+                        ) : null}
+                        <Text style={styles.eventTime}>
+                          {formatDate(event.createdAt)}
+                        </Text>
                       </View>
                     </View>
                   ))
                 )}
               </View>
 
-              <AddEventForm caseNumber={caseNumber} role={role} onSuccess={() => {}} />
+              <AddEventForm
+                caseNumber={caseNumber}
+                role={role}
+                onSuccess={() => {}}
+              />
 
               {/* Photos */}
               <View style={styles.card}>
                 <View style={styles.tabRow}>
                   <Pressable
                     onPress={() => setImageFolder("intake")}
-                    style={[styles.tab, imageFolder === "intake" && styles.tabActive]}
+                    style={[
+                      styles.tab,
+                      imageFolder === "intake" && styles.tabActive,
+                    ]}
                   >
-                    <Text style={[styles.tabText, imageFolder === "intake" && styles.tabTextActive]}>
+                    <Text
+                      style={[
+                        styles.tabText,
+                        imageFolder === "intake" && styles.tabTextActive,
+                      ]}
+                    >
                       Intake Photos
                     </Text>
                   </Pressable>
                   <Pressable
                     onPress={() => setImageFolder("repairs")}
-                    style={[styles.tab, imageFolder === "repairs" && styles.tabActive]}
+                    style={[
+                      styles.tab,
+                      imageFolder === "repairs" && styles.tabActive,
+                    ]}
                   >
-                    <Text style={[styles.tabText, imageFolder === "repairs" && styles.tabTextActive]}>
+                    <Text
+                      style={[
+                        styles.tabText,
+                        imageFolder === "repairs" && styles.tabTextActive,
+                      ]}
+                    >
                       Repair Photos
                     </Text>
                   </Pressable>
@@ -722,15 +965,22 @@ export default function CaseDetailScreen() {
                     folder="intake"
                     role={role}
                     onImageView={(imgs, idx) => {
-                    const item = imgs[idx];
-                    if (item.mediaType === "video") {
-                      setVideoViewerItem(item);
-                    } else {
-                      const onlyImages = imgs.filter((m) => m.mediaType !== "video");
-                      const startIndex = onlyImages.findIndex((m) => m.id === item.id);
-                      setImageViewerState({ images: onlyImages, startIndex: Math.max(0, startIndex) });
-                    }
-                  }}
+                      const item = imgs[idx];
+                      if (item.mediaType === "video") {
+                        setVideoViewerItem(item);
+                      } else {
+                        const onlyImages = imgs.filter(
+                          (m) => m.mediaType !== "video",
+                        );
+                        const startIndex = onlyImages.findIndex(
+                          (m) => m.id === item.id,
+                        );
+                        setImageViewerState({
+                          images: onlyImages,
+                          startIndex: Math.max(0, startIndex),
+                        });
+                      }
+                    }}
                   />
                 ) : (
                   <ImagesGrid
@@ -738,15 +988,22 @@ export default function CaseDetailScreen() {
                     folder="repairs"
                     role={role}
                     onImageView={(imgs, idx) => {
-                    const item = imgs[idx];
-                    if (item.mediaType === "video") {
-                      setVideoViewerItem(item);
-                    } else {
-                      const onlyImages = imgs.filter((m) => m.mediaType !== "video");
-                      const startIndex = onlyImages.findIndex((m) => m.id === item.id);
-                      setImageViewerState({ images: onlyImages, startIndex: Math.max(0, startIndex) });
-                    }
-                  }}
+                      const item = imgs[idx];
+                      if (item.mediaType === "video") {
+                        setVideoViewerItem(item);
+                      } else {
+                        const onlyImages = imgs.filter(
+                          (m) => m.mediaType !== "video",
+                        );
+                        const startIndex = onlyImages.findIndex(
+                          (m) => m.id === item.id,
+                        );
+                        setImageViewerState({
+                          images: onlyImages,
+                          startIndex: Math.max(0, startIndex),
+                        });
+                      }
+                    }}
                   />
                 )}
               </View>
@@ -754,30 +1011,46 @@ export default function CaseDetailScreen() {
               {isAdmin && (
                 <>
                   <Pressable
-                    onPress={() => { setTransferAdvisorId(null); setTransferNote(""); setTransferOpen(true); }}
+                    onPress={() => {
+                      setTransferAdvisorId(null);
+                      setTransferNote("");
+                      setTransferOpen(true);
+                    }}
                     style={styles.transferCaseBtn}
                   >
                     <Feather name="shuffle" size={15} color={colors.primary} />
-                    <Text style={styles.transferCaseBtnText}>Transfer Case</Text>
+                    <Text style={styles.transferCaseBtnText}>
+                      Transfer Case
+                    </Text>
                   </Pressable>
                   <Pressable
                     onPress={handleDeleteCase}
                     disabled={deleteMutation.isPending}
-                    style={[styles.deleteCaseBtn, deleteMutation.isPending && styles.disabled]}
+                    style={[
+                      styles.deleteCaseBtn,
+                      deleteMutation.isPending && styles.disabled,
+                    ]}
                   >
                     {deleteMutation.isPending ? (
-                      <ActivityIndicator color={colors.destructive} size="small" />
+                      <ActivityIndicator
+                        color={colors.destructive}
+                        size="small"
+                      />
                     ) : (
                       <>
-                        <Feather name="trash-2" size={15} color={colors.destructive} />
-                        <Text style={styles.deleteCaseBtnText}>Delete Case</Text>
+                        <Feather
+                          name="trash-2"
+                          size={15}
+                          color={colors.destructive}
+                        />
+                        <Text style={styles.deleteCaseBtnText}>
+                          Delete Case
+                        </Text>
                       </>
                     )}
                   </Pressable>
                 </>
               )}
-
-
             </>
           )}
         </ScrollView>
@@ -829,9 +1102,7 @@ export default function CaseDetailScreen() {
               <EditField
                 label="Car Model"
                 value={editForm.carModel ?? ""}
-                onChangeText={(v) =>
-                  setEditForm({ ...editForm, carModel: v })
-                }
+                onChangeText={(v) => setEditForm({ ...editForm, carModel: v })}
                 required
               />
               <EditField
@@ -845,26 +1116,40 @@ export default function CaseDetailScreen() {
               <EditField
                 label="KM Count"
                 value={editForm.kmCount ?? ""}
-                onChangeText={(v) =>
-                  setEditForm({ ...editForm, kmCount: v })
-                }
+                onChangeText={(v) => setEditForm({ ...editForm, kmCount: v })}
                 keyboardType="numeric"
               />
               {/* Due Date */}
               <View style={styles.editField}>
                 <Text style={styles.editFieldLabel}>Due Date</Text>
                 <View style={styles.editChipRow}>
-                  {([
-                    { id: "today", label: "Same Day" },
-                    { id: "tomorrow", label: "Tomorrow" },
-                    { id: "day-after", label: "Day After" },
-                  ] as const).map((opt) => (
+                  {(
+                    [
+                      { id: "today", label: "Same Day" },
+                      { id: "tomorrow", label: "Tomorrow" },
+                      { id: "day-after", label: "Day After" },
+                    ] as const
+                  ).map((opt) => (
                     <Pressable
                       key={opt.id}
-                      onPress={() => setEditForm({ ...editForm, dueDate: editForm.dueDate === opt.id ? "" : opt.id })}
-                      style={[styles.editChip, editForm.dueDate === opt.id && styles.editChipActive]}
+                      onPress={() =>
+                        setEditForm({
+                          ...editForm,
+                          dueDate: editForm.dueDate === opt.id ? "" : opt.id,
+                        })
+                      }
+                      style={[
+                        styles.editChip,
+                        editForm.dueDate === opt.id && styles.editChipActive,
+                      ]}
                     >
-                      <Text style={[styles.editChipText, editForm.dueDate === opt.id && styles.editChipTextActive]}>
+                      <Text
+                        style={[
+                          styles.editChipText,
+                          editForm.dueDate === opt.id &&
+                            styles.editChipTextActive,
+                        ]}
+                      >
                         {opt.label}
                       </Text>
                     </Pressable>
@@ -881,9 +1166,7 @@ export default function CaseDetailScreen() {
               <EditField
                 label="Notes"
                 value={editForm.notes ?? ""}
-                onChangeText={(v) =>
-                  setEditForm({ ...editForm, notes: v })
-                }
+                onChangeText={(v) => setEditForm({ ...editForm, notes: v })}
                 multiline
               />
 
@@ -891,13 +1174,36 @@ export default function CaseDetailScreen() {
               <View style={styles.editField}>
                 <Text style={styles.editFieldLabel}>Arrival Status</Text>
                 <View style={styles.editChipRow}>
-                  {(["walk_in", "pickup", "customer_waiting", "breakdown"] as const).map((s) => (
+                  {(
+                    [
+                      "walk_in",
+                      "pickup",
+                      "customer_waiting",
+                      "breakdown",
+                    ] as const
+                  ).map((s) => (
                     <Pressable
                       key={s}
-                      onPress={() => setEditForm({ ...editForm, customerArrivalStatus: editForm.customerArrivalStatus === s ? "" : s })}
-                      style={[styles.editChip, editForm.customerArrivalStatus === s && styles.editChipActive]}
+                      onPress={() =>
+                        setEditForm({
+                          ...editForm,
+                          customerArrivalStatus:
+                            editForm.customerArrivalStatus === s ? "" : s,
+                        })
+                      }
+                      style={[
+                        styles.editChip,
+                        editForm.customerArrivalStatus === s &&
+                          styles.editChipActive,
+                      ]}
                     >
-                      <Text style={[styles.editChipText, editForm.customerArrivalStatus === s && styles.editChipTextActive]}>
+                      <Text
+                        style={[
+                          styles.editChipText,
+                          editForm.customerArrivalStatus === s &&
+                            styles.editChipTextActive,
+                        ]}
+                      >
                         {ARRIVAL_LABELS[s]}
                       </Text>
                     </Pressable>
@@ -912,14 +1218,26 @@ export default function CaseDetailScreen() {
                   {(["service", "repair"] as const).map((s) => (
                     <Pressable
                       key={s}
-                      onPress={() => setEditForm({
-                        ...editForm,
-                        serviceType: editForm.serviceType === s ? "" : s,
-                        serviceSubType: s === "repair" ? "" : editForm.serviceSubType,
-                      })}
-                      style={[styles.editChip, editForm.serviceType === s && styles.editChipActive]}
+                      onPress={() =>
+                        setEditForm({
+                          ...editForm,
+                          serviceType: editForm.serviceType === s ? "" : s,
+                          serviceSubType:
+                            s === "repair" ? "" : editForm.serviceSubType,
+                        })
+                      }
+                      style={[
+                        styles.editChip,
+                        editForm.serviceType === s && styles.editChipActive,
+                      ]}
                     >
-                      <Text style={[styles.editChipText, editForm.serviceType === s && styles.editChipTextActive]}>
+                      <Text
+                        style={[
+                          styles.editChipText,
+                          editForm.serviceType === s &&
+                            styles.editChipTextActive,
+                        ]}
+                      >
                         {s === "service" ? "Service" : "Repair"}
                       </Text>
                     </Pressable>
@@ -932,17 +1250,35 @@ export default function CaseDetailScreen() {
                 <View style={styles.editField}>
                   <Text style={styles.editFieldLabel}>Service Sub-Type</Text>
                   <View style={styles.editChipRow}>
-                    {(["major", "minor", "breakdown", "running"] as const).map((s) => (
-                      <Pressable
-                        key={s}
-                        onPress={() => setEditForm({ ...editForm, serviceSubType: editForm.serviceSubType === s ? "" : s })}
-                        style={[styles.editChip, editForm.serviceSubType === s && styles.editChipActive]}
-                      >
-                        <Text style={[styles.editChipText, editForm.serviceSubType === s && styles.editChipTextActive]}>
-                          {SERVICE_SUB_LABELS[s]}
-                        </Text>
-                      </Pressable>
-                    ))}
+                    {(["major", "minor", "breakdown", "running"] as const).map(
+                      (s) => (
+                        <Pressable
+                          key={s}
+                          onPress={() =>
+                            setEditForm({
+                              ...editForm,
+                              serviceSubType:
+                                editForm.serviceSubType === s ? "" : s,
+                            })
+                          }
+                          style={[
+                            styles.editChip,
+                            editForm.serviceSubType === s &&
+                              styles.editChipActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.editChipText,
+                              editForm.serviceSubType === s &&
+                                styles.editChipTextActive,
+                            ]}
+                          >
+                            {SERVICE_SUB_LABELS[s]}
+                          </Text>
+                        </Pressable>
+                      ),
+                    )}
                   </View>
                 </View>
               )}
@@ -966,7 +1302,8 @@ export default function CaseDetailScreen() {
                   styles.saveBtn,
                   (editMutation.isPending ||
                     !editForm.vehicleNumber?.trim() ||
-                    !editForm.carModel?.trim()) && styles.disabled,
+                    !editForm.carModel?.trim()) &&
+                    styles.disabled,
                 ]}
               >
                 {editMutation.isPending ? (
@@ -988,7 +1325,11 @@ export default function CaseDetailScreen() {
 
       {/* Image viewer — react-native-image-viewing handles pinch/swipe/zoom */}
       <ImageViewing
-        images={imageViewerState ? imageViewerState.images.map((m) => ({ uri: m.url })) : []}
+        images={
+          imageViewerState
+            ? imageViewerState.images.map((m) => ({ uri: m.url }))
+            : []
+        }
         imageIndex={imageViewerState?.startIndex ?? 0}
         visible={!!imageViewerState}
         onRequestClose={() => setImageViewerState(null)}
@@ -997,18 +1338,36 @@ export default function CaseDetailScreen() {
         HeaderComponent={({ imageIndex }) => {
           const img = imageViewerState!.images[imageIndex];
           return (
-            <View style={styles.viewerHeader}>
-              <Pressable style={styles.viewerHeaderBtn} onPress={() => setImageViewerState(null)} hitSlop={12}>
+            <View
+              style={[
+                styles.viewerHeader,
+                { paddingTop: Math.max(insets.top, 16) },
+              ]}
+            >
+              <Pressable
+                style={styles.viewerHeaderBtn}
+                onPress={() => setImageViewerState(null)}
+                hitSlop={12}
+              >
                 <Feather name="x" size={22} color="#fff" />
               </Pressable>
-              <Text style={styles.viewerCounter}>{imageIndex + 1} / {imageViewerState!.images.length}</Text>
+              <Text style={styles.viewerCounter}>
+                {imageIndex + 1} / {imageViewerState!.images.length}
+              </Text>
               <Pressable
-                style={[styles.viewerHeaderBtn, downloadingImage && styles.disabled]}
+                style={[
+                  styles.viewerHeaderBtn,
+                  downloadingImage && styles.disabled,
+                ]}
                 onPress={() => handleDownloadImage(img)}
                 disabled={downloadingImage}
                 hitSlop={12}
               >
-                {downloadingImage ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download" size={22} color="#fff" />}
+                {downloadingImage ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Feather name="download" size={22} color="#fff" />
+                )}
               </Pressable>
             </View>
           );
@@ -1023,9 +1382,12 @@ export default function CaseDetailScreen() {
                   <Text style={styles.viewerPrimaryText}>Primary</Text>
                 </View>
               )}
-              <Text style={styles.viewerFilename} numberOfLines={1}>{img.filename}</Text>
+              <Text style={styles.viewerFilename} numberOfLines={1}>
+                {img.filename}
+              </Text>
               <Text style={styles.viewerMeta}>
-                {img.folder === "intake" ? "Intake" : "Repairs"} · {formatDate(img.createdAt)}
+                {img.folder === "intake" ? "Intake" : "Repairs"} ·{" "}
+                {formatDate(img.createdAt)}
               </Text>
             </View>
           );
@@ -1042,18 +1404,36 @@ export default function CaseDetailScreen() {
       >
         {videoViewerItem && (
           <View style={styles.viewerBackdrop}>
-            <View style={styles.viewerHeader}>
-              <Pressable style={styles.viewerHeaderBtn} onPress={() => setVideoViewerItem(null)} hitSlop={12}>
+            <View
+              style={[
+                styles.viewerHeader,
+                { paddingTop: Math.max(insets.top, 16) },
+              ]}
+            >
+              <Pressable
+                style={styles.viewerHeaderBtn}
+                onPress={() => setVideoViewerItem(null)}
+                hitSlop={12}
+              >
                 <Feather name="x" size={22} color="#fff" />
               </Pressable>
-              <Text style={styles.viewerCounter}>{videoViewerItem.filename}</Text>
+              <Text style={styles.viewerCounter}>
+                {videoViewerItem.filename}
+              </Text>
               <Pressable
-                style={[styles.viewerHeaderBtn, downloadingImage && styles.disabled]}
+                style={[
+                  styles.viewerHeaderBtn,
+                  downloadingImage && styles.disabled,
+                ]}
                 onPress={() => handleDownloadImage(videoViewerItem)}
                 disabled={downloadingImage}
                 hitSlop={12}
               >
-                {downloadingImage ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download" size={22} color="#fff" />}
+                {downloadingImage ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Feather name="download" size={22} color="#fff" />
+                )}
               </Pressable>
             </View>
             <View style={styles.viewerImageArea}>
@@ -1061,7 +1441,8 @@ export default function CaseDetailScreen() {
             </View>
             <View style={styles.viewerFooter}>
               <Text style={styles.viewerMeta}>
-                {videoViewerItem.folder === "intake" ? "Intake" : "Repairs"} · {formatDate(videoViewerItem.createdAt)}
+                {videoViewerItem.folder === "intake" ? "Intake" : "Repairs"} ·{" "}
+                {formatDate(videoViewerItem.createdAt)}
               </Text>
             </View>
           </View>
@@ -1083,8 +1464,8 @@ export default function CaseDetailScreen() {
             <Text style={styles.sheetTitle}>Create WhatsApp Group</Text>
             <Text style={styles.waGroupMeta}>
               Group will include customer
-              {data?.customerPhone ? ` (${data.customerPhone})` : ""} and
-              you ({data?.advisor.phone ?? "your number"}).
+              {data?.customerPhone ? ` (${data.customerPhone})` : ""} and you (
+              {data?.advisor.phone ?? "your number"}).
             </Text>
             <TextInput
               value={waInitialMsg}
@@ -1191,9 +1572,15 @@ export default function CaseDetailScreen() {
             </Text>
 
             {advisorsQuery.isLoading ? (
-              <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
+              <ActivityIndicator
+                color={colors.primary}
+                style={{ marginVertical: 16 }}
+              />
             ) : (
-              <ScrollView style={styles.advisorPickerList} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={styles.advisorPickerList}
+                showsVerticalScrollIndicator={false}
+              >
                 {(advisorsQuery.data ?? [])
                   .filter((a: UserListItem) => a.id !== data?.advisorId)
                   .map((advisor: UserListItem) => (
@@ -1202,30 +1589,41 @@ export default function CaseDetailScreen() {
                       onPress={() => setTransferAdvisorId(advisor.id)}
                       style={[
                         styles.advisorPickerRow,
-                        transferAdvisorId === advisor.id && styles.advisorPickerRowActive,
+                        transferAdvisorId === advisor.id &&
+                          styles.advisorPickerRowActive,
                       ]}
                     >
                       <View
                         style={[
                           styles.advisorPickerAvatar,
-                          transferAdvisorId === advisor.id && styles.advisorPickerAvatarActive,
+                          transferAdvisorId === advisor.id &&
+                            styles.advisorPickerAvatarActive,
                         ]}
                       >
                         <Text
                           style={[
                             styles.advisorPickerAvatarText,
-                            transferAdvisorId === advisor.id && styles.advisorPickerAvatarTextActive,
+                            transferAdvisorId === advisor.id &&
+                              styles.advisorPickerAvatarTextActive,
                           ]}
                         >
                           {advisor.name.charAt(0).toUpperCase()}
                         </Text>
                       </View>
                       <View style={styles.advisorPickerInfo}>
-                        <Text style={styles.advisorPickerName}>{advisor.name}</Text>
-                        <Text style={styles.advisorPickerRole}>{advisor.role}</Text>
+                        <Text style={styles.advisorPickerName}>
+                          {advisor.name}
+                        </Text>
+                        <Text style={styles.advisorPickerRole}>
+                          {advisor.role}
+                        </Text>
                       </View>
                       {transferAdvisorId === advisor.id && (
-                        <Feather name="check" size={16} color={colors.primary} />
+                        <Feather
+                          name="check"
+                          size={16}
+                          color={colors.primary}
+                        />
                       )}
                     </Pressable>
                   ))}
@@ -1254,7 +1652,8 @@ export default function CaseDetailScreen() {
               disabled={!transferAdvisorId || transferMutation.isPending}
               style={[
                 styles.saveBtn,
-                (!transferAdvisorId || transferMutation.isPending) && styles.disabled,
+                (!transferAdvisorId || transferMutation.isPending) &&
+                  styles.disabled,
               ]}
             >
               {transferMutation.isPending ? (
@@ -1263,7 +1662,10 @@ export default function CaseDetailScreen() {
                 <Text style={styles.saveText}>Transfer Case</Text>
               )}
             </Pressable>
-            <Pressable onPress={() => setTransferOpen(false)} style={styles.sheetCancel}>
+            <Pressable
+              onPress={() => setTransferOpen(false)}
+              style={styles.sheetCancel}
+            >
               <Text style={styles.sheetCancelText}>Cancel</Text>
             </Pressable>
           </View>
@@ -1334,12 +1736,19 @@ function StatusPickerModal({
   onSave: () => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
       <View style={styles.sheetBackdrop}>
         <View style={styles.sheet}>
           <View style={styles.sheetHandle} />
           <Text style={styles.sheetTitle}>{title}</Text>
-          <Text style={styles.currentStatus}>Currently: {statusLabel(selected)}</Text>
+          <Text style={styles.currentStatus}>
+            Currently: {statusLabel(selected)}
+          </Text>
           <View style={styles.statusGrid}>
             {statuses.map((status) => (
               <Pressable
@@ -1371,8 +1780,16 @@ function StatusPickerModal({
               style={styles.noteInput}
             />
           ) : null}
-          <Pressable onPress={onSave} disabled={loading} style={[styles.saveBtn, loading && styles.disabled]}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Save Status</Text>}
+          <Pressable
+            onPress={onSave}
+            disabled={loading}
+            style={[styles.saveBtn, loading && styles.disabled]}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.saveText}>Save Status</Text>
+            )}
           </Pressable>
           <Pressable onPress={onClose} style={styles.sheetCancel}>
             <Text style={styles.sheetCancelText}>Cancel</Text>
@@ -1398,7 +1815,11 @@ function WhatsAppCard({
   waStatusQuery: ReturnType<typeof useWhatsAppStatus>;
   waInitiated: boolean;
   setWaInitiated: (v: boolean) => void;
-  createGroupMutation: UseMutationResult<CreateGroupResult, Error, { phone: string; msg?: string }>;
+  createGroupMutation: UseMutationResult<
+    CreateGroupResult,
+    Error,
+    { phone: string; msg?: string }
+  >;
   setWaSendOpen: (v: boolean) => void;
   setWaCreateOpen: (v: boolean) => void;
   setWaInitialMsg: (v: string) => void;
@@ -1424,7 +1845,9 @@ function WhatsAppCard({
                 </Text>
                 <Pressable
                   onPress={() => {
-                    Clipboard.setStringAsync(waStatusQuery.data!.whatsappInviteLink!);
+                    Clipboard.setStringAsync(
+                      waStatusQuery.data!.whatsappInviteLink!,
+                    );
                     showToast("Link copied");
                   }}
                   style={styles.waCopyBtn}
@@ -1434,7 +1857,10 @@ function WhatsAppCard({
               </View>
             </View>
           ) : null}
-          <Pressable onPress={() => setWaSendOpen(true)} style={styles.waSendBtn}>
+          <Pressable
+            onPress={() => setWaSendOpen(true)}
+            style={styles.waSendBtn}
+          >
             <Feather name="send" size={14} color="#fff" />
             <Text style={styles.waSendText}>Send Update</Text>
           </Pressable>
@@ -1448,7 +1874,10 @@ function WhatsAppCard({
           <Pressable
             onPress={() => {
               setWaInitiated(true);
-              createGroupMutation.mutate({ phone: data.advisor.phone, msg: formatCaseMessage(data) });
+              createGroupMutation.mutate({
+                phone: data.advisor.phone,
+                msg: formatCaseMessage(data),
+              });
             }}
             style={styles.waRetryBtn}
           >
@@ -1462,10 +1891,11 @@ function WhatsAppCard({
             <Text style={styles.waManualText}>Session Disconnected</Text>
           </View>
           <Text style={styles.waManualDesc}>
-            The server WhatsApp session is disconnected. Ask admin to re-scan the QR code, then retry.
+            The server WhatsApp session is disconnected. Ask admin to re-scan
+            the QR code, then retry.
           </Text>
           <Pressable
-            onPress={() => Linking.openURL("whatsapp://")}
+            onPress={() => Linking.openURL("whatsapp://send")}
             style={styles.waOpenBtn}
           >
             <Feather name="message-circle" size={14} color="#25D366" />
@@ -1474,7 +1904,10 @@ function WhatsAppCard({
           <Pressable
             onPress={() => {
               setWaInitiated(true);
-              createGroupMutation.mutate({ phone: data.advisor.phone, msg: formatCaseMessage(data) });
+              createGroupMutation.mutate({
+                phone: data.advisor.phone,
+                msg: formatCaseMessage(data),
+              });
             }}
             style={styles.waRetryBtn}
           >
@@ -1490,16 +1923,21 @@ function WhatsAppCard({
         </View>
       ) : (
         <View>
-          <Text style={styles.waNoGroupText}>No WhatsApp group created yet</Text>
+          <Text style={styles.waNoGroupText}>
+            No WhatsApp group created yet
+          </Text>
           <Pressable
-            onPress={() => { setWaInitialMsg(data ? formatCaseMessage(data) : ""); setWaCreateOpen(true); }}
+            onPress={() => {
+              setWaInitialMsg(data ? formatCaseMessage(data) : "");
+              setWaCreateOpen(true);
+            }}
             style={styles.waCreateBtn}
           >
             <Feather name="users" size={14} color="#fff" />
             <Text style={styles.waCreateText}>Create WhatsApp Group</Text>
           </Pressable>
           <Pressable
-            onPress={() => Linking.openURL("whatsapp://")}
+            onPress={() => Linking.openURL("whatsapp://send")}
             style={styles.waOpenBtn}
           >
             <Feather name="message-circle" size={14} color="#25D366" />
@@ -1549,21 +1987,30 @@ function ImagesGrid({
   caseNumber,
   folder,
   role,
+  canUpload = true,
   onImageView,
 }: {
   caseNumber: string;
   folder: "intake" | "repairs";
   role: string | undefined;
+  canUpload?: boolean;
   onImageView: (images: CaseEventImage[], index: number) => void;
 }) {
   const queryClient = useQueryClient();
-  const { data: images, isLoading, refetch } = useCaseImages(caseNumber, folder);
+  const {
+    data: images,
+    isLoading,
+    refetch,
+  } = useCaseImages(caseNumber, folder);
   const [uploading, setUploading] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [bulkAction, setBulkAction] = useState<"download" | "share" | "delete" | null>(null);
+  const [bulkAction, setBulkAction] = useState<
+    "download" | "share" | "delete" | null
+  >(null);
 
-  const canPrivileged = role === "superadmin" || role === "admin" || role === "advisor";
+  const canPrivileged =
+    role === "superadmin" || role === "admin" || role === "advisor";
 
   const toggleSelect = (id: number) => {
     Haptics.selectionAsync();
@@ -1579,7 +2026,9 @@ function ImagesGrid({
     setSelectedIds(new Set());
   };
 
-  const selectedImages = (images ?? []).filter((img) => selectedIds.has(img.id));
+  const selectedImages = (images ?? []).filter((img) =>
+    selectedIds.has(img.id),
+  );
 
   const isExpoGo = Constants.appOwnership === "expo";
 
@@ -1589,7 +2038,7 @@ function ImagesGrid({
       Alert.alert(
         "Dev Build Required",
         "Saving to the photo library requires a development build. Run: eas build --profile development",
-        [{ text: "OK" }]
+        [{ text: "OK" }],
       );
       return;
     }
@@ -1597,7 +2046,10 @@ function ImagesGrid({
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission denied", "Allow photo library access in Settings to save images.");
+        Alert.alert(
+          "Permission denied",
+          "Allow photo library access in Settings to save images.",
+        );
         return;
       }
       const saveResults = await Promise.allSettled(
@@ -1606,14 +2058,20 @@ function ImagesGrid({
           const localUri = `${FileSystem.cacheDirectory}ym_${img.id}_${Date.now()}.${ext}`;
           const { uri } = await FileSystem.downloadAsync(img.url, localUri);
           await MediaLibrary.saveToLibraryAsync(uri);
-        })
+        }),
       );
       const saved = saveResults.filter((r) => r.status === "fulfilled").length;
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Saved", `${saved} image${saved !== 1 ? "s" : ""} saved to photo library.`);
+      Alert.alert(
+        "Saved",
+        `${saved} image${saved !== 1 ? "s" : ""} saved to photo library.`,
+      );
       exitSelectMode();
     } catch (e) {
-      Alert.alert("Download failed", e instanceof Error ? e.message : "Could not save images.");
+      Alert.alert(
+        "Download failed",
+        e instanceof Error ? e.message : "Could not save images.",
+      );
     } finally {
       setBulkAction(null);
     }
@@ -1624,7 +2082,9 @@ function ImagesGrid({
     setBulkAction("share");
     try {
       // Only images for multi-share (WhatsApp requires homogeneous image/* type)
-      const imageItems = selectedImages.filter((img) => img.mediaType !== "video");
+      const imageItems = selectedImages.filter(
+        (img) => img.mediaType !== "video",
+      );
       if (imageItems.length === 0) {
         Alert.alert("Images only", "Select at least one image to share.");
         return;
@@ -1636,12 +2096,15 @@ function ImagesGrid({
           const dest = `${FileSystem.cacheDirectory}rns_${img.id}.jpg`;
           await FileSystem.downloadAsync(img.url, dest);
           return dest;
-        })
+        }),
       );
 
       console.log(localPaths);
       if (!RNShare) {
-        Alert.alert("Not supported", "Sharing requires a dev/production build.");
+        Alert.alert(
+          "Not supported",
+          "Sharing requires a dev/production build.",
+        );
         return;
       }
       // react-native-share with useInternalStorage copies files into the app's
@@ -1679,20 +2142,44 @@ function ImagesGrid({
           text: "Delete",
           style: "destructive",
           onPress: async () => {
+            if (bulkAction) return;
             setBulkAction("delete");
             try {
-              await Promise.all(selectedImages.map((img) => deleteImage(caseNumber, img.id)));
-              queryClient.invalidateQueries({ queryKey: ["images", caseNumber, folder] });
+              const results = await Promise.allSettled(
+                selectedImages.map((img) => deleteImage(caseNumber, img.id)),
+              );
+              const realFails = results.filter(
+                (r): r is PromiseRejectedResult => {
+                  if (r.status !== "rejected") return false;
+                  const msg =
+                    r.reason instanceof Error
+                      ? r.reason.message.toLowerCase()
+                      : "";
+                  return !msg.includes("not found");
+                },
+              );
+              queryClient.invalidateQueries({
+                queryKey: ["images", caseNumber, folder],
+              });
               queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
               exitSelectMode();
+              if (realFails.length > 0) {
+                Alert.alert(
+                  "Partial failure",
+                  `${realFails.length} image${realFails.length !== 1 ? "s" : ""} could not be deleted.`,
+                );
+              }
             } catch (e) {
-              Alert.alert("Error", e instanceof Error ? e.message : "Failed to delete images.");
+              Alert.alert(
+                "Error",
+                e instanceof Error ? e.message : "Failed to delete images.",
+              );
             } finally {
               setBulkAction(null);
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -1700,40 +2187,73 @@ function ImagesGrid({
     new Promise((resolve) => {
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
-          { options: ["Cancel", "Take Photo / Video", "Choose from Gallery"], cancelButtonIndex: 0 },
+          {
+            options: ["Cancel", "Take Photo / Video", "Choose from Gallery"],
+            cancelButtonIndex: 0,
+          },
           async (idx) => {
             if (idx === 1) {
-              const { status } = await ImagePickerLib.requestCameraPermissionsAsync();
-              if (status !== "granted") { resolve([]); return; }
-              const r = await ImagePickerLib.launchCameraAsync({ quality: 0.85, mediaTypes: ["images", "videos"] });
+              const { status } =
+                await ImagePickerLib.requestCameraPermissionsAsync();
+              if (status !== "granted") {
+                resolve([]);
+                return;
+              }
+              const r = await ImagePickerLib.launchCameraAsync({
+                quality: 0.85,
+                mediaTypes: ["images", "videos"],
+              });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             } else if (idx === 2) {
-              const { status } = await ImagePickerLib.requestMediaLibraryPermissionsAsync();
-              if (status !== "granted") { resolve([]); return; }
-              const r = await ImagePickerLib.launchImageLibraryAsync({ quality: 0.85, allowsMultipleSelection: true, mediaTypes: ["images", "videos"] });
+              const { status } =
+                await ImagePickerLib.requestMediaLibraryPermissionsAsync();
+              if (status !== "granted") {
+                resolve([]);
+                return;
+              }
+              const r = await ImagePickerLib.launchImageLibraryAsync({
+                quality: 0.85,
+                allowsMultipleSelection: true,
+                mediaTypes: ["images", "videos"],
+              });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             } else {
               resolve([]);
             }
-          }
+          },
         );
       } else {
         Alert.alert("Add Photo / Video", "Choose source", [
           {
             text: "Take Photo / Video",
             onPress: async () => {
-              const { status } = await ImagePickerLib.requestCameraPermissionsAsync();
-              if (status !== "granted") { resolve([]); return; }
-              const r = await ImagePickerLib.launchCameraAsync({ quality: 0.85, mediaTypes: ["images", "videos"] });
+              const { status } =
+                await ImagePickerLib.requestCameraPermissionsAsync();
+              if (status !== "granted") {
+                resolve([]);
+                return;
+              }
+              const r = await ImagePickerLib.launchCameraAsync({
+                quality: 0.85,
+                mediaTypes: ["images", "videos"],
+              });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             },
           },
           {
             text: "Choose from Gallery",
             onPress: async () => {
-              const { status } = await ImagePickerLib.requestMediaLibraryPermissionsAsync();
-              if (status !== "granted") { resolve([]); return; }
-              const r = await ImagePickerLib.launchImageLibraryAsync({ quality: 0.85, allowsMultipleSelection: true, mediaTypes: ["images", "videos"] });
+              const { status } =
+                await ImagePickerLib.requestMediaLibraryPermissionsAsync();
+              if (status !== "granted") {
+                resolve([]);
+                return;
+              }
+              const r = await ImagePickerLib.launchImageLibraryAsync({
+                quality: 0.85,
+                allowsMultipleSelection: true,
+                mediaTypes: ["images", "videos"],
+              });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             },
           },
@@ -1742,14 +2262,22 @@ function ImagesGrid({
       }
     });
 
-  const getMimeType = (uri: string): { mime: string; ext: string; isVideo: boolean } => {
+  const getMimeType = (
+    uri: string,
+  ): { mime: string; ext: string; isVideo: boolean } => {
     const lower = uri.split("?")[0].toLowerCase();
-    if (lower.endsWith(".mp4")) return { mime: "video/mp4", ext: "mp4", isVideo: true };
-    if (lower.endsWith(".mov")) return { mime: "video/quicktime", ext: "mov", isVideo: true };
-    if (lower.endsWith(".heic")) return { mime: "image/heic", ext: "heic", isVideo: false };
-    if (lower.endsWith(".heif")) return { mime: "image/heif", ext: "heif", isVideo: false };
-    if (lower.endsWith(".png")) return { mime: "image/png", ext: "png", isVideo: false };
-    if (lower.endsWith(".webp")) return { mime: "image/webp", ext: "webp", isVideo: false };
+    if (lower.endsWith(".mp4"))
+      return { mime: "video/mp4", ext: "mp4", isVideo: true };
+    if (lower.endsWith(".mov"))
+      return { mime: "video/quicktime", ext: "mov", isVideo: true };
+    if (lower.endsWith(".heic"))
+      return { mime: "image/heic", ext: "heic", isVideo: false };
+    if (lower.endsWith(".heif"))
+      return { mime: "image/heif", ext: "heif", isVideo: false };
+    if (lower.endsWith(".png"))
+      return { mime: "image/png", ext: "png", isVideo: false };
+    if (lower.endsWith(".webp"))
+      return { mime: "image/webp", ext: "webp", isVideo: false };
     return { mime: "image/jpeg", ext: "jpg", isVideo: false };
   };
 
@@ -1762,16 +2290,28 @@ function ImagesGrid({
       uris.map(async (uri) => {
         const { mime, ext, isVideo } = getMimeType(uri);
         const filename = `${Array.from({ length: 4 }, () =>
-          String.fromCharCode(97 + Math.floor(Math.random() * 26))
+          String.fromCharCode(97 + Math.floor(Math.random() * 26)),
         ).join("")}.${ext}`;
-        const presigned = await presignImage(caseNumber, { filename, contentType: mime, folder });
+        const presigned = await presignImage(caseNumber, {
+          filename,
+          contentType: mime,
+          folder,
+        });
         await uploadImageToS3(presigned.uploadUrl, uri, mime);
-        return { key: presigned.key, filename, folder, mediaType: isVideo ? "video" : "image" } as ConfirmImageItem;
-      })
+        return {
+          key: presigned.key,
+          filename,
+          folder,
+          mediaType: isVideo ? "video" : "image",
+        } as ConfirmImageItem;
+      }),
     );
 
     const confirmed = results
-      .filter((r): r is PromiseFulfilledResult<ConfirmImageItem> => r.status === "fulfilled")
+      .filter(
+        (r): r is PromiseFulfilledResult<ConfirmImageItem> =>
+          r.status === "fulfilled",
+      )
       .map((r) => r.value);
     const failedCount = results.filter((r) => r.status === "rejected").length;
 
@@ -1779,7 +2319,10 @@ function ImagesGrid({
       try {
         await confirmImages(caseNumber, confirmed);
       } catch (e) {
-        Alert.alert("Upload Error", e instanceof Error ? e.message : "Failed to save image records.");
+        Alert.alert(
+          "Upload Error",
+          e instanceof Error ? e.message : "Failed to save image records.",
+        );
         setUploading(false);
         return;
       }
@@ -1787,7 +2330,11 @@ function ImagesGrid({
     queryClient.invalidateQueries({ queryKey: ["images", caseNumber, folder] });
     queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
     setUploading(false);
-    if (failedCount > 0) Alert.alert("Upload Complete", `${confirmed.length} uploaded, ${failedCount} failed`);
+    if (failedCount > 0)
+      Alert.alert(
+        "Upload Complete",
+        `${confirmed.length} uploaded, ${failedCount} failed`,
+      );
   };
 
   const imageList = images ?? [];
@@ -1796,12 +2343,17 @@ function ImagesGrid({
   return (
     <View>
       {isLoading ? (
-        <ActivityIndicator color={colors.primary} style={styles.imagesLoading} />
+        <ActivityIndicator
+          color={colors.primary}
+          style={styles.imagesLoading}
+        />
       ) : imageList.length === 0 ? (
         <View style={styles.emptyImages}>
           <Feather name="image" size={24} color={colors.textMuted} />
           <Text style={styles.emptyImagesText}>No photos yet</Text>
-          <Text style={styles.emptyImagesSub}>Tap "Add Photos" to upload images</Text>
+          <Text style={styles.emptyImagesSub}>
+            Tap "Add Photos" to upload images
+          </Text>
         </View>
       ) : (
         <View style={styles.imageGrid}>
@@ -1820,7 +2372,10 @@ function ImagesGrid({
               }}
               onLongPress={
                 !selectMode && canPrivileged
-                  ? () => { setSelectMode(true); toggleSelect(img.id); }
+                  ? () => {
+                      setSelectMode(true);
+                      toggleSelect(img.id);
+                    }
                   : undefined
               }
             />
@@ -1830,17 +2385,22 @@ function ImagesGrid({
 
       {selectMode ? (
         <View style={styles.selectBar}>
-          <Pressable onPress={exitSelectMode} style={styles.cancelSelectBtn} disabled={isBusy}>
+          <Pressable
+            onPress={exitSelectMode}
+            style={styles.cancelSelectBtn}
+            disabled={isBusy}
+          >
             <Text style={styles.cancelSelectText}>Cancel</Text>
           </Pressable>
-          <Text style={styles.selectedCount}>
-            {selectedIds.size} selected
-          </Text>
+          <Text style={styles.selectedCount}>{selectedIds.size} selected</Text>
           <View style={styles.bulkBtns}>
             <Pressable
               onPress={handleBulkDownload}
               disabled={selectedIds.size === 0 || isBusy}
-              style={[styles.bulkBtn, (selectedIds.size === 0 || isBusy) && styles.disabled]}
+              style={[
+                styles.bulkBtn,
+                (selectedIds.size === 0 || isBusy) && styles.disabled,
+              ]}
             >
               {bulkAction === "download" ? (
                 <ActivityIndicator color={colors.primary} size="small" />
@@ -1851,7 +2411,10 @@ function ImagesGrid({
             <Pressable
               onPress={handleBulkShare}
               disabled={selectedIds.size === 0 || isBusy}
-              style={[styles.bulkBtn, (selectedIds.size === 0 || isBusy) && styles.disabled]}
+              style={[
+                styles.bulkBtn,
+                (selectedIds.size === 0 || isBusy) && styles.disabled,
+              ]}
             >
               {bulkAction === "share" ? (
                 <ActivityIndicator color="#25D366" size="small" />
@@ -1863,12 +2426,20 @@ function ImagesGrid({
               <Pressable
                 onPress={handleBulkDelete}
                 disabled={selectedIds.size === 0 || isBusy}
-                style={[styles.bulkBtn, styles.bulkBtnDanger, (selectedIds.size === 0 || isBusy) && styles.disabled]}
+                style={[
+                  styles.bulkBtn,
+                  styles.bulkBtnDanger,
+                  (selectedIds.size === 0 || isBusy) && styles.disabled,
+                ]}
               >
                 {bulkAction === "delete" ? (
                   <ActivityIndicator color={colors.destructive} size="small" />
                 ) : (
-                  <Feather name="trash-2" size={18} color={colors.destructive} />
+                  <Feather
+                    name="trash-2"
+                    size={18}
+                    color={colors.destructive}
+                  />
                 )}
               </Pressable>
             )}
@@ -1876,28 +2447,51 @@ function ImagesGrid({
         </View>
       ) : (
         <View style={styles.imageActions}>
-          <Pressable
-            onPress={handleAdd}
-            disabled={uploading}
-            style={[styles.addPhotoBtn, uploading && styles.disabled]}
-          >
-            {uploading ? (
-              <ActivityIndicator color={colors.primary} size="small" />
-            ) : (
-              <>
-                <Feather name="camera" size={14} color={colors.primary} />
-                <Text style={styles.addPhotoText}>Add Photos</Text>
-              </>
-            )}
-          </Pressable>
+          {canUpload && (
+            <Pressable
+              onPress={handleAdd}
+              disabled={uploading}
+              style={[styles.addPhotoBtn, uploading && styles.disabled]}
+            >
+              {uploading ? (
+                <ActivityIndicator color={colors.primary} size="small" />
+              ) : (
+                <>
+                  <Feather name="camera" size={14} color={colors.primary} />
+                  <Text style={styles.addPhotoText}>Add Photos</Text>
+                </>
+              )}
+            </Pressable>
+          )}
           {imageList.length > 0 && (
-            <Text style={[styles.imageCount, imageList.length >= 500 && styles.imageCountHigh]}>
-              {imageList.length} {imageList.length >= 500 ? "⚠" : ""}
-            </Text>
+            <View style={styles.imageCountRow}>
+              <Text
+                style={[
+                  styles.imageCount,
+                  imageList.length >= 500 && styles.imageCountHigh,
+                ]}
+              >
+                {imageList.length}
+              </Text>
+              {imageList.length >= 500 && (
+                <Feather
+                  name="alert-triangle"
+                  size={11}
+                  color={colors.warning}
+                />
+              )}
+            </View>
           )}
           {canPrivileged && imageList.length > 0 && (
-            <Pressable onPress={() => setSelectMode(true)} style={styles.selectBtn}>
-              <Feather name="check-square" size={14} color={colors.textSecondary} />
+            <Pressable
+              onPress={() => setSelectMode(true)}
+              style={styles.selectBtn}
+            >
+              <Feather
+                name="check-square"
+                size={14}
+                color={colors.textSecondary}
+              />
             </Pressable>
           )}
           <Pressable onPress={() => refetch()} style={styles.refreshBtn}>
@@ -2087,19 +2681,19 @@ const styles = StyleSheet.create({
   sheetBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.35)",
+    backgroundColor: "rgba(0,0,0,0.45)",
   },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 24,
   },
   sheetHandle: {
     alignSelf: "center",
-    width: 42,
+    width: 36,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.border,
@@ -2111,6 +2705,7 @@ const styles = StyleSheet.create({
     fontWeight: "700" as const,
     color: colors.text,
     marginBottom: 8,
+    textAlign: "center",
   },
   currentStatus: {
     fontSize: 12,
@@ -2148,11 +2743,11 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   statusOptionTextActive: {
-    color: "#fff",
+    color: colors.primaryForeground,
   },
   noteInput: {
     minHeight: 82,
-    borderRadius: 12,
+    borderRadius: colors.radius,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.inputBg,
@@ -2164,7 +2759,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
   },
   saveBtn: {
-    height: 50,
+    height: 52,
     borderRadius: 12,
     backgroundColor: colors.primary,
     alignItems: "center",
@@ -2176,7 +2771,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
-    color: "#fff",
+    color: colors.primaryForeground,
   },
   sheetCancel: {
     alignItems: "center",
@@ -2336,7 +2931,7 @@ const styles = StyleSheet.create({
   selectBtn: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.inputBg,
@@ -2364,15 +2959,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: "PlusJakartaSans_400Regular",
     color: colors.textMuted,
+  },
+  imageCountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     marginLeft: 4,
   },
   imageCountHigh: {
-    color: "#D97706",
+    color: colors.warning,
   },
   refreshBtn: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.inputBg,
@@ -2393,7 +2993,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
-    color: "#fff",
+    color: colors.primaryForeground,
   },
   editFormScroll: {
     maxHeight: 420,
@@ -2412,7 +3012,7 @@ const styles = StyleSheet.create({
   },
   editFieldInput: {
     minHeight: 50,
-    borderRadius: 12,
+    borderRadius: colors.radius,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.inputBg,
@@ -2444,12 +3044,12 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   editChipText: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: "PlusJakartaSans_500Medium",
     color: colors.textSecondary,
   },
   editChipTextActive: {
-    color: "#fff",
+    color: colors.primaryForeground,
     fontFamily: "PlusJakartaSans_600SemiBold",
   },
   editErrorText: {
@@ -2468,7 +3068,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 52,
     paddingBottom: 12,
     backgroundColor: "rgba(0,0,0,0.5)",
   },
@@ -2525,7 +3124,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#F59E0B",
+    backgroundColor: colors.primaryImageBadge,
     alignSelf: "flex-start",
     borderRadius: 5,
     paddingHorizontal: 7,
@@ -2626,7 +3225,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
-    color: "#B54708",
+    color: colors.warning,
   },
   waManualDesc: {
     fontSize: 12,
@@ -2819,5 +3418,31 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_400Regular",
     color: "rgba(255,255,255,0.45)",
     textAlign: "center",
+  },
+  uploadBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.primaryFaint,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.primary + "40",
+  },
+  uploadBannerFailed: {
+    backgroundColor: colors.destructiveFaint,
+    borderBottomColor: colors.destructive + "40",
+  },
+  uploadBannerDone: {
+    backgroundColor: colors.successFaint,
+    borderBottomColor: colors.success + "40",
+  },
+  uploadBannerText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.primary,
+  },
+  uploadBannerTextFail: {
+    color: colors.destructive,
   },
 });

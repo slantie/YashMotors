@@ -35,10 +35,14 @@ export default function ImageSharingScreen() {
 
   const allImages = [
     ...(formData.primaryImage ? [formData.primaryImage] : []),
-    ...formData.additionalImages.filter((m) => m.type === "image").map((m) => m.uri),
+    ...formData.additionalImages
+      .filter((m) => m.type === "image")
+      .map((m) => m.uri),
   ];
 
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(allImages));
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(allImages),
+  );
 
   const toggleImage = useCallback((uri: string) => {
     Haptics.selectionAsync();
@@ -83,30 +87,45 @@ export default function ImageSharingScreen() {
               return await FileSystem.getContentUriAsync(uri);
             }
             return uri;
-          })
+          }),
         );
 
-        await IntentLauncher.startActivityAsync("android.intent.action.SEND_MULTIPLE", {
-          type: "image/*",
-          extra: { "android.intent.extra.STREAM": contentUris },
-          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-        });
+        await IntentLauncher.startActivityAsync(
+          "android.intent.action.SEND_MULTIPLE",
+          {
+            type: "image/*",
+            extra: { "android.intent.extra.STREAM": contentUris },
+            flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+          },
+        );
       } else {
         // iOS: share one at a time via system share sheet (WhatsApp supports multi-image in share sheet)
         const isAvailable = await Sharing.isAvailableAsync();
         if (!isAvailable) {
-          Alert.alert("Sharing not available", "This device does not support sharing.");
+          Alert.alert(
+            "Sharing not available",
+            "This device does not support sharing.",
+          );
           return;
         }
         for (const uri of selectedArr) {
-          await Sharing.shareAsync(uri, { mimeType: "image/jpeg", UTI: "public.jpeg" });
+          await Sharing.shareAsync(uri, {
+            mimeType: "image/jpeg",
+            UTI: "public.jpeg",
+          });
         }
       }
     } catch (err: unknown) {
       if (err && typeof err === "object" && "message" in err) {
         const msg = (err as { message: string }).message;
-        if (!msg.toLowerCase().includes("cancel") && !msg.toLowerCase().includes("user cancel")) {
-          Alert.alert("Share failed", "Could not share images to WhatsApp. Make sure WhatsApp is installed.");
+        if (
+          !msg.toLowerCase().includes("cancel") &&
+          !msg.toLowerCase().includes("user cancel")
+        ) {
+          Alert.alert(
+            "Share failed",
+            "Could not share images to WhatsApp. Make sure WhatsApp is installed.",
+          );
         }
       }
     } finally {
@@ -124,10 +143,7 @@ export default function ImageSharingScreen() {
     return (
       <Pressable
         onPress={() => toggleImage(item)}
-        style={({ pressed }) => [
-          styles.cell,
-          pressed && styles.cellPressed,
-        ]}
+        style={({ pressed }) => [styles.cell, pressed && styles.cellPressed]}
       >
         <Image source={{ uri: item }} style={styles.img} />
         {isPrimary && (
@@ -147,9 +163,7 @@ export default function ImageSharingScreen() {
             </View>
           )}
         </View>
-        {!isSelected && (
-          <View style={styles.uncheckedCircle} />
-        )}
+        {!isSelected && <View style={styles.uncheckedCircle} />}
       </Pressable>
     );
   };
@@ -226,12 +240,7 @@ export default function ImageSharingScreen() {
             }
           />
 
-          <View
-            style={[
-              styles.footer,
-              { paddingBottom: insets.bottom + 16 },
-            ]}
-          >
+          <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
             <ActionButton
               label={
                 noneSelected
@@ -382,7 +391,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.text,

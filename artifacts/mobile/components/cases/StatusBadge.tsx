@@ -9,10 +9,13 @@ interface StatusBadgeProps {
   type: "internal" | "customer";
 }
 
-const statusColors: Record<string, { bg: string; text: string; border: string }> = {
-  intake: { bg: "#EEF2F6", text: "#475467", border: "#D0D5DD" },
+const statusColors: Record<
+  string,
+  { bg: string; text: string; border: string }
+> = {
+  intake: { bg: "#EEF2F6", text: colors.textSecondary, border: colors.border },
   in_progress: { bg: "#EAF0FF", text: colors.primary, border: "#B8C7F0" },
-  awaiting_parts: { bg: "#FFF7E6", text: "#B54708", border: "#FEDF89" },
+  awaiting_parts: { bg: "#FFF7E6", text: colors.warning, border: "#FEDF89" },
   denting: { bg: "#F0F9FF", text: "#026AA2", border: "#B9E6FE" },
   painting: { bg: "#F4EBFF", text: "#6941C6", border: "#D6BBFB" },
   polishing: { bg: "#ECFDF3", text: "#027A48", border: "#ABEFC6" },
@@ -20,9 +23,17 @@ const statusColors: Record<string, { bg: string; text: string; border: string }>
   washing: { bg: "#E0F2FE", text: "#075985", border: "#BAE6FD" },
   quality_check: { bg: "#EEF4FF", text: "#3538CD", border: "#C7D7FE" },
   ready: { bg: "#ECFDF3", text: "#027A48", border: "#ABEFC6" },
-  delivered: { bg: "#F2F4F7", text: "#667085", border: "#D0D5DD" },
+  delivered: {
+    bg: "#F2F4F7",
+    text: colors.textSecondary,
+    border: colors.border,
+  },
   cancelled: { bg: "#FEF3F2", text: "#B42318", border: "#FECDCA" },
-  received: { bg: "#EEF2F6", text: "#475467", border: "#D0D5DD" },
+  received: {
+    bg: "#EEF2F6",
+    text: colors.textSecondary,
+    border: colors.border,
+  },
   in_repair: { bg: "#EAF0FF", text: colors.primary, border: "#B8C7F0" },
   final_inspection: { bg: "#EEF4FF", text: "#3538CD", border: "#C7D7FE" },
   ready_for_delivery: { bg: "#ECFDF3", text: "#027A48", border: "#ABEFC6" },
