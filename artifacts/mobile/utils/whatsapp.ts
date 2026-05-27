@@ -43,7 +43,7 @@ export async function openWhatsApp(
  */
 export async function openWhatsAppNative(): Promise<boolean> {
   try {
-    await Linking.openURL("whatsapp://");
+    await Linking.openURL("whatsapp://send");
     return true;
   } catch {
     return false;

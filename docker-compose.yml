@@ -48,14 +48,16 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: services/ocr/.env
+    volumes:
+      - paddleocr_models:/root/.paddleocr
     expose:
       - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 180s
 
   nginx:
     image: nginx:1.27-alpine
@@ -75,3 +77,4 @@ services:
 volumes:
   redis_data:
   baileys_auth:
+  paddleocr_models:
