@@ -9,7 +9,7 @@ import {
 
 import colors from "@/constants/colors";
 
-export type DueDateOption = "tomorrow" | "day-after" | "later";
+export type DueDateOption = "today" | "tomorrow" | "day-after";
 
 interface DueDateSelectorProps {
   value: DueDateOption | "";
@@ -37,6 +37,12 @@ export function DueDateSelector({ value, onChange, error }: DueDateSelectorProps
 
     return [
       {
+        id: "today" as DueDateOption,
+        label: "Same Day",
+        date: formatShortDate(today),
+        icon: "zap" as const,
+      },
+      {
         id: "tomorrow" as DueDateOption,
         label: "Tomorrow",
         date: formatShortDate(tomorrow),
@@ -47,12 +53,6 @@ export function DueDateSelector({ value, onChange, error }: DueDateSelectorProps
         label: "Day After",
         date: formatShortDate(dayAfter),
         icon: "calendar" as const,
-      },
-      {
-        id: "later" as DueDateOption,
-        label: "Later",
-        date: "To be confirmed",
-        icon: "clock" as const,
       },
     ];
   }, []);

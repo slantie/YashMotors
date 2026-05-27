@@ -9,6 +9,7 @@ import type {
   WhatsAppJobData,
   CreateGroupJobData,
   SendMessageJobData,
+  AddToGroupJobData,
 } from "../lib/queue.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -118,11 +119,30 @@ async function processSendMessage(data: SendMessageJobData): Promise<void> {
   });
 }
 
+async function processAddToGroup(data: AddToGroupJobData): Promise<void> {
+  const [currentCase] = await db.select({ id: cases.id, deletedAt: cases.deletedAt })
+    .from(cases).where(eq(cases.id, data.caseId)).limit(1);
+  if (!currentCase || currentCase.deletedAt !== null) {
+    console.log(`[WA Worker] Case ${data.caseId} deleted — skipping add_to_group job`);
+    return;
+  }
+
+  await sleep(jitter(1000, 3000));
+
+  await callBaileys("/whatsapp/add-to-group", {
+    groupId: data.groupId,
+    phones: data.phones,
+  });
+
+  console.log(`[WA Worker] Added ${data.newAdvisorName} to WA group for case ${data.caseNumber}`);
+}
+
 // ── worker ─────────────────────────────────────────────────────────────────────
 
 const processor: Processor<WhatsAppJobData> = async (job) => {
   if (job.data.type === "create_group") return processCreateGroup(job.data);
   if (job.data.type === "send_message") return processSendMessage(job.data);
+  if (job.data.type === "add_to_group") return processAddToGroup(job.data);
 };
 
 export function startWhatsAppWorker(): void {

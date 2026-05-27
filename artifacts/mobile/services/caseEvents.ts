@@ -18,6 +18,7 @@ export interface CaseEventImage {
   s3Key: string;
   filename: string;
   folder: "intake" | "repairs";
+  mediaType: "image" | "video";
   isPrimary: boolean;
   url: string;
   uploadedBy: number;
@@ -40,6 +41,7 @@ export interface ConfirmImageItem {
   key: string;
   filename: string;
   folder: "intake" | "repairs";
+  mediaType?: "image" | "video";
   isPrimary?: boolean;
   timestampClick?: number;
   lat?: number;

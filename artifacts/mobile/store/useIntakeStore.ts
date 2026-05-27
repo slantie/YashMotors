@@ -4,10 +4,12 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { DeliveryType } from "@/components/DeliveryTypeSelector";
 import type { DueDateOption } from "@/components/DueDateSelector";
+import type { ServiceType, ServiceSubType } from "@/services/cases";
+import type { MediaItem } from "@/components/ImagePickerGrid";
 
 export interface IntakeFormData {
   primaryImage: string | null;
-  additionalImages: string[];
+  additionalImages: MediaItem[];
   carModel: string;
   customerName: string;
   contactNumber: string;
@@ -15,6 +17,8 @@ export interface IntakeFormData {
   dueDate: DueDateOption | "";
   deliveryType: DeliveryType | "";
   notes: string;
+  serviceType: ServiceType | "";
+  serviceSubType: ServiceSubType | "";
 }
 
 interface IntakeStore {
@@ -41,6 +45,8 @@ const defaultFormData: IntakeFormData = {
   dueDate: "",
   deliveryType: "",
   notes: "",
+  serviceType: "",
+  serviceSubType: "",
 };
 
 export const useIntakeStore = create<IntakeStore>()(

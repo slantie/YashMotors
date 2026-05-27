@@ -23,6 +23,10 @@ export type CustomerStatus =
   | "ready_for_delivery"
   | "delivered";
 
+export type CustomerArrivalStatus = "walk_in" | "pickup" | "customer_waiting" | "breakdown";
+export type ServiceType = "service" | "repair";
+export type ServiceSubType = "major" | "minor" | "breakdown" | "running";
+
 export interface CaseListItem {
   id: number;
   caseNumber: string;
@@ -34,6 +38,9 @@ export interface CaseListItem {
   dueDate?: string;
   deliveryType?: string;
   notes?: string;
+  customerArrivalStatus?: CustomerArrivalStatus;
+  serviceType?: ServiceType;
+  serviceSubType?: ServiceSubType;
   internalStatus: InternalStatus;
   customerStatus: CustomerStatus;
   advisorId: number;
@@ -74,6 +81,9 @@ export interface CreateCaseBody {
   dueDate?: string;
   deliveryType?: string;
   notes?: string;
+  customerArrivalStatus?: CustomerArrivalStatus;
+  serviceType?: ServiceType;
+  serviceSubType?: ServiceSubType;
 }
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
@@ -168,4 +178,15 @@ export async function deleteCase(caseNumber: string): Promise<void> {
 
 export async function notifyAdvisor(caseNumber: string): Promise<void> {
   await request(`/cases/${encodeURIComponent(caseNumber)}/notify-advisor`, { method: "POST" });
+}
+
+export async function transferCase(
+  caseNumber: string,
+  targetAdvisorId: number,
+  note?: string
+): Promise<void> {
+  await request(`/cases/${encodeURIComponent(caseNumber)}/transfer`, {
+    method: "PUT",
+    body: JSON.stringify({ targetAdvisorId, ...(note ? { note } : {}) }),
+  });
 }

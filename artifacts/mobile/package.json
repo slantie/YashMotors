@@ -72,7 +72,14 @@
     "expo-notifications": "~0.29.14",
     "expo-secure-store": "~15.0.8",
     "expo-sharing": "~14.0.8",
+    "expo-video": "~3.0.16",
+    "moti": "^0.30.0",
     "react-hook-form": "^7.75.0",
-    "zustand": "^5.0.13"
+    "react-native-bootsplash": "^6.3.12",
+    "react-native-image-viewing": "^0.2.2",
+    "react-native-share": "^12.3.1",
+    "zustand": "^5.0.13",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
   }
 }

@@ -35,7 +35,7 @@ export default function ImageSharingScreen() {
 
   const allImages = [
     ...(formData.primaryImage ? [formData.primaryImage] : []),
-    ...formData.additionalImages,
+    ...formData.additionalImages.filter((m) => m.type === "image").map((m) => m.uri),
   ];
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set(allImages));
@@ -89,7 +89,6 @@ export default function ImageSharingScreen() {
         await IntentLauncher.startActivityAsync("android.intent.action.SEND_MULTIPLE", {
           type: "image/*",
           extra: { "android.intent.extra.STREAM": contentUris },
-          packageName: "com.whatsapp",
           flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
         });
       } else {

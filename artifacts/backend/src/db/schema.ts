@@ -46,6 +46,25 @@ export const customerStatusEnum = pgEnum("customer_status", [
   "delivered",
 ]);
 
+export const customerArrivalStatusEnum = pgEnum("customer_arrival_status", [
+  "walk_in",
+  "pickup",
+  "customer_waiting",
+  "breakdown",
+]);
+
+export const serviceTypeEnum = pgEnum("service_type", [
+  "service",
+  "repair",
+]);
+
+export const serviceSubTypeEnum = pgEnum("service_sub_type", [
+  "major",
+  "minor",
+  "breakdown",
+  "running",
+]);
+
 export const whatsappGroupStatusEnum = pgEnum("whatsapp_group_status", [
   "pending",
   "created",
@@ -69,6 +88,7 @@ export const eventTypeEnum = pgEnum("event_type", [
   "message_sent",
   "message_failed",
   "delivery_completed",
+  "case_transferred",
 ]);
 
 // ── departments ────────────────────────────────────────────────────────────────
@@ -130,6 +150,9 @@ export const cases = pgTable("cases", {
   dueDate: text("due_date"),
   deliveryType: text("delivery_type"),
   notes: text("notes"),
+  customerArrivalStatus: customerArrivalStatusEnum("customer_arrival_status"),
+  serviceType: serviceTypeEnum("service_type"),
+  serviceSubType: serviceSubTypeEnum("service_sub_type"),
   // Two separate status tracks
   internalStatus: internalStatusEnum("internal_status").notNull().default("intake"),
   customerStatus: customerStatusEnum("customer_status").notNull().default("received"),

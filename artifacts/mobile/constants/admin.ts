@@ -1,2 +1,4 @@
 export const ADMIN_NUMBER = "8758800101";
 export const ADMIN_DISPLAY = "+91 87588 00101";
+export const NANDISH_NUMBER = "9909260701";
+export const NANDISH_DISPLAY = "+91 99092 60701";

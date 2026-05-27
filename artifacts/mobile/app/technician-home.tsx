@@ -121,7 +121,7 @@ export default function TechnicianHomeScreen() {
         subtitle={`${greeting()}, ${user?.name?.split(" ")[0] ?? "Technician"}`}
         showBack={false}
         rightElement={
-          <Pressable onPress={() => router.push("/settings")} style={styles.iconBtn}>
+          <Pressable onPress={() => router.push("/(tabs)/settings")} style={styles.iconBtn}>
             <Feather name="settings" size={18} color={colors.primary} />
           </Pressable>
         }

@@ -5,6 +5,7 @@ import {
   Image,
   Pressable,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 
@@ -34,7 +35,14 @@ export function ImageThumbnail({
       onLongPress={onLongPress}
       style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
     >
-      <Image source={{ uri: image.url }} style={styles.image} />
+      {image.mediaType === "video" ? (
+        <View style={styles.videoPlaceholder}>
+          <Feather name="play-circle" size={32} color="rgba(255,255,255,0.9)" />
+          <Text style={styles.videoLabel} numberOfLines={1}>{image.filename}</Text>
+        </View>
+      ) : (
+        <Image source={{ uri: image.url }} style={styles.image} />
+      )}
       {image.isPrimary && (
         <View style={styles.primaryBadge}>
           <Feather name="star" size={10} color="#fff" />
@@ -72,6 +80,21 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     resizeMode: "cover",
+  },
+  videoPlaceholder: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#111",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  videoLabel: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: "rgba(255,255,255,0.6)",
+    paddingHorizontal: 8,
+    textAlign: "center",
   },
   primaryBadge: {
     position: "absolute",

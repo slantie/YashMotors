@@ -29,6 +29,27 @@
       "when": 1779770724709,
       "tag": "0003_next_toad",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779780000000,
+      "tag": "0004_add_media_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779800000000,
+      "tag": "0005_add_case_transferred_event",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1748256000000,
+      "tag": "0006_add_case_classification",
+      "breakpoints": true
     }
   ]
 }

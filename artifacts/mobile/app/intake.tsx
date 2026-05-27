@@ -29,7 +29,10 @@ import {
   AdditionalImagesPicker,
   PrimaryImagePicker,
 } from "@/components/ImagePickerGrid";
+import { IntakeStepBar } from "@/components/IntakeStepBar";
+import { ServiceTypeSelector } from "@/components/ServiceTypeSelector";
 import colors from "@/constants/colors";
+import type { ServiceSubType, ServiceType } from "@/services/cases";
 import { useIntakeStore } from "@/store/useIntakeStore";
 
 interface FormValues {
@@ -40,6 +43,8 @@ interface FormValues {
   dueDate: DueDateOption | "";
   deliveryType: DeliveryType | "";
   notes: string;
+  serviceType: ServiceType | "";
+  serviceSubType: ServiceSubType | "";
 }
 
 export default function IntakeScreen() {
@@ -61,11 +66,11 @@ export default function IntakeScreen() {
       dueDate: formData.dueDate,
       deliveryType: formData.deliveryType,
       notes: formData.notes,
+      serviceType: formData.serviceType,
+      serviceSubType: formData.serviceSubType,
     },
   });
 
-  // When user returns to intake screen after a case was successfully created,
-  // clear the store so the form starts fresh for the next vehicle.
   useFocusEffect(
     useCallback(() => {
       if (createdCaseNumber) {
@@ -78,6 +83,8 @@ export default function IntakeScreen() {
           dueDate: "",
           deliveryType: "",
           notes: "",
+          serviceType: "",
+          serviceSubType: "",
         });
       }
     }, [createdCaseNumber]),
@@ -108,11 +115,10 @@ export default function IntakeScreen() {
             dueDate: "",
             deliveryType: "",
             notes: "",
+            serviceType: "",
+            serviceSubType: "",
           });
-          setFormData({
-            primaryImage: null,
-            additionalImages: [],
-          });
+          setFormData({ primaryImage: null, additionalImages: [] });
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         },
       },
@@ -155,25 +161,7 @@ export default function IntakeScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Step indicator */}
-          <View style={styles.stepsRow}>
-            <View style={styles.stepItem}>
-              <View style={[styles.stepDot, styles.stepDotActive]} />
-              <Text style={[styles.stepLabel, styles.stepLabelActive]}>
-                Photos
-              </Text>
-            </View>
-            <View style={styles.stepLine} />
-            <View style={styles.stepItem}>
-              <View style={styles.stepDot} />
-              <Text style={styles.stepLabel}>Vehicle</Text>
-            </View>
-            <View style={styles.stepLine} />
-            <View style={styles.stepItem}>
-              <View style={styles.stepDot} />
-              <Text style={styles.stepLabel}>Customer</Text>
-            </View>
-          </View>
+          <IntakeStepBar currentStep={0} />
 
           {/* Vehicle Photos */}
           <View style={styles.section}>
@@ -184,8 +172,8 @@ export default function IntakeScreen() {
             />
             <Text style={styles.hintText}>Required for plate scan</Text>
             <AdditionalImagesPicker
-              images={formData.additionalImages}
-              onImagesChange={(imgs) => setFormData({ additionalImages: imgs })}
+              media={formData.additionalImages}
+              onMediaChange={(items) => setFormData({ additionalImages: items })}
             />
           </View>
 
@@ -244,6 +232,30 @@ export default function IntakeScreen() {
                   value={value}
                   onChange={onChange}
                   error={errors.dueDate?.message}
+                />
+              )}
+            />
+
+            <Controller
+              control={control}
+              name="serviceType"
+              render={({ field: { value, onChange } }) => (
+                <Controller
+                  control={control}
+                  name="serviceSubType"
+                  render={({
+                    field: { value: subValue, onChange: onSubChange },
+                  }) => (
+                    <ServiceTypeSelector
+                      serviceType={value}
+                      serviceSubType={subValue}
+                      onServiceTypeChange={(v) => {
+                        onChange(v);
+                        if (v === "repair") onSubChange("");
+                      }}
+                      onServiceSubTypeChange={onSubChange}
+                    />
+                  )}
                 />
               )}
             />
@@ -344,48 +356,16 @@ function SectionHeader({ label }: { label: string }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
-  stepsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-    paddingHorizontal: 16,
-  },
-  stepItem: {
-    alignItems: "center",
-    gap: 4,
-  },
-  stepDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.border,
-  },
-  stepDotActive: {
-    backgroundColor: colors.primary,
-  },
-  stepLabel: {
-    fontSize: 10,
-    fontFamily: "PlusJakartaSans_500Medium",
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  stepLabelActive: {
-    color: colors.primary,
-  },
-  stepLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-    marginHorizontal: 8,
-    marginBottom: 16,
-  },
   flex: { flex: 1 },
   scroll: { flex: 1 },
   content: {
     paddingHorizontal: 16,
     paddingTop: 20,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
   section: {
     backgroundColor: colors.surface,
@@ -394,11 +374,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: 16,
     marginBottom: 12,
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
   },
   sectionHeader: {
     flexDirection: "row",

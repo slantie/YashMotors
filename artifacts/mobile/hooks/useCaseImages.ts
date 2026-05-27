@@ -7,6 +7,7 @@ export function useCaseImages(caseNumber: string, folder: string) {
     queryKey: ["images", caseNumber, folder],
     queryFn: () => fetchImages(caseNumber, folder),
     enabled: !!caseNumber,
-    staleTime: 10 * 60 * 1000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 }

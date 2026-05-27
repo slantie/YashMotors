@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import colors from "@/constants/colors";
 import type { CaseListItem } from "@/services/cases";
+import { toTitleCase } from "@/components/CarModelDropdown";
 import { StatusBadge } from "./StatusBadge";
 
 interface CaseCardProps {
@@ -80,7 +81,7 @@ export function CaseCard({ item, onPress, showAdvisor }: CaseCardProps) {
           {item.vehicleNumber}
         </Text>
         <Text style={styles.model} numberOfLines={1}>
-          {item.carModel}
+          {toTitleCase(item.carModel)}
         </Text>
 
         <View style={styles.bottomRow}>

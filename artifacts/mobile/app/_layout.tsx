@@ -10,6 +10,15 @@ import * as Notifications from "expo-notifications";
 import { router, Stack, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
+
+let RNBootSplash: { hide: (opts: { fade: boolean }) => Promise<void> } | null = null;
+try {
+  RNBootSplash = require("react-native-bootsplash").default;
+} catch {
+  // Expo Go — fall back to expo-splash-screen
+}
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -46,7 +55,6 @@ async function registerPushToken(accessToken: string) {
   }
 }
 
-SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
@@ -112,7 +120,6 @@ function RootLayoutNav() {
       <Stack.Screen name="ocr-preview" />
       <Stack.Screen name="whatsapp-workflow" />
       <Stack.Screen name="image-sharing" />
-      <Stack.Screen name="settings" />
       <Stack.Screen name="management" />
     </Stack>
   );
@@ -128,7 +135,11 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      if (RNBootSplash) {
+        RNBootSplash.hide({ fade: true });
+      } else {
+        SplashScreen.hideAsync();
+      }
     }
   }, [fontsLoaded, fontError]);
 

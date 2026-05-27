@@ -9,7 +9,7 @@ import {
 
 import colors from "@/constants/colors";
 
-export type DeliveryType = "walk-in" | "pickup-drop" | "breakdown";
+export type DeliveryType = "customer-waiting" | "walk-in" | "pickup-drop" | "breakdown";
 
 const OPTIONS: {
   id: DeliveryType;
@@ -17,6 +17,12 @@ const OPTIONS: {
   sub: string;
   icon: keyof typeof Feather.glyphMap;
 }[] = [
+  {
+    id: "customer-waiting",
+    label: "Customer Waiting",
+    sub: "On-site wait",
+    icon: "clock",
+  },
   {
     id: "walk-in",
     label: "Walk-in",
@@ -137,10 +143,11 @@ const styles = StyleSheet.create({
   },
   row: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   chip: {
-    flex: 1,
+    width: "48%",
     backgroundColor: colors.inputBg,
     borderRadius: 12,
     borderWidth: 1.5,

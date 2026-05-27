@@ -2,7 +2,7 @@
   "expo": {
     "name": "Yash Motors",
     "slug": "yashmotors",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "yashmotors",
@@ -66,7 +66,17 @@
           "savePhotosPermission": "Allow Yash Motors App to save vehicle images to your photo library.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      [
+        "react-native-bootsplash",
+        {
+          "assetsDir": "assets/bootsplash",
+          "android": {
+            "parentTheme": "TransparentStatus"
+          }
+        }
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

@@ -11,7 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --retries 5 --timeout 180 -r requirements.txt
+
+# boto3 in a separate layer — keeps the heavy PaddlePaddle layer cached on rebuilds
+RUN pip install --no-cache-dir --retries 5 --timeout 180 "boto3>=1.34.0"
 
 COPY main.py .
 

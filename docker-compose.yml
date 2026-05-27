@@ -47,6 +47,7 @@ services:
       context: services/ocr
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file: services/ocr/.env
     expose:
       - "8000"
     healthcheck:

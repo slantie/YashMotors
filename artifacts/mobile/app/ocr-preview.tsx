@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppHeader } from "@/components/AppHeader";
+import { IntakeStepBar } from "@/components/IntakeStepBar";
 import colors from "@/constants/colors";
 import { createCase } from "@/services/cases";
 import {
@@ -35,24 +36,37 @@ export default function OcrPreviewScreen() {
   const [scanning, setScanning] = useState(true);
   const [vn, setVn] = useState(vehicleNumber || "");
   const [ocrDetected, setOcrDetected] = useState(false);
+  const [ocrSource, setOcrSource] = useState<"paddle" | "textract" | null>(null);
   const [uploadStatus, setUploadStatus] = useState<{
     phase: "idle" | "creating" | "uploading";
     done: number;
     total: number;
     failedCount: number;
   }>({ phase: "idle", done: 0, total: 0, failedCount: 0 });
+  const [dots, setDots] = useState(1);
   const scanAnim = useRef(new Animated.Value(0)).current;
-  const fadeIn = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(0.95)).current;
+  const cardScaleAnim = useRef(new Animated.Value(0.95)).current;
+  const cornerAnim = useRef(new Animated.Value(0.55)).current;
+  const resultAnims = useRef([0, 1, 2, 3].map(() => new Animated.Value(0))).current;
 
   useEffect(() => {
     const loopAnim = Animated.loop(
       Animated.sequence([
-        Animated.timing(scanAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
-        Animated.timing(scanAnim, { toValue: 0, duration: 1200, useNativeDriver: true }),
+        Animated.timing(scanAnim, { toValue: 1, duration: 1400, useNativeDriver: true }),
+        Animated.timing(scanAnim, { toValue: 0, duration: 1400, useNativeDriver: true }),
       ])
     );
     loopAnim.start();
+
+    const cornerLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(cornerAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(cornerAnim, { toValue: 0.45, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    cornerLoop.start();
+
+    const dotsTimer = setInterval(() => setDots((d) => (d % 3) + 1), 480);
 
     const primaryUri = formData.primaryImage;
     const MIN_SCAN_MS = 2200;
@@ -74,6 +88,7 @@ export default function OcrPreviewScreen() {
             const json = await res.json();
             console.log("[OCR] Raw output:", json.raw);
             extracted = json.plate || "";
+            setOcrSource(json.source || null);
             if (extracted) console.log("[OCR] Matched plate:", extracted);
             else console.log("[OCR] No plate found. Raw:", json.raw);
           } else {
@@ -90,14 +105,19 @@ export default function OcrPreviewScreen() {
       if (cancelled) return;
 
       loopAnim.stop();
+      cornerLoop.stop();
+      clearInterval(dotsTimer);
       setScanning(false);
       if (extracted) {
         setVn(extracted);
         setOcrDetected(true);
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Animated.spring(fadeIn, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 6 }).start();
-      Animated.spring(pulseAnim, { toValue: 1, useNativeDriver: true, speed: 8, bounciness: 8 }).start();
+      resultAnims.forEach((a) => a.setValue(0));
+      Animated.spring(cardScaleAnim, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 5 }).start();
+      Animated.stagger(75, resultAnims.map((a) =>
+        Animated.spring(a, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 4 })
+      )).start();
     }
 
     runOcr();
@@ -105,6 +125,8 @@ export default function OcrPreviewScreen() {
     return () => {
       cancelled = true;
       loopAnim.stop();
+      cornerLoop.stop();
+      clearInterval(dotsTimer);
     };
   }, []);
 
@@ -123,25 +145,30 @@ export default function OcrPreviewScreen() {
         dueDate: formData.dueDate || undefined,
         deliveryType: formData.deliveryType || undefined,
         notes: formData.notes || undefined,
+        serviceType: formData.serviceType || undefined,
+        serviceSubType: formData.serviceSubType || undefined,
       });
 
       // Snapshot URIs NOW — still in component context, temp files still live
       const all = [
-        ...(formData.primaryImage ? [{ uri: formData.primaryImage, isPrimary: true }] : []),
-        ...formData.additionalImages.map((uri) => ({ uri, isPrimary: false })),
+        ...(formData.primaryImage ? [{ uri: formData.primaryImage, mediaType: "image" as const, isPrimary: true }] : []),
+        ...formData.additionalImages.map((m) => ({ uri: m.uri, mediaType: m.type, isPrimary: false })),
       ];
 
       if (all.length > 0) {
         setUploadStatus({ phase: "uploading", done: 0, total: all.length, failedCount: 0 });
 
-        const uploadOne = async ({ uri, isPrimary }: { uri: string; isPrimary: boolean }): Promise<ConfirmImageItem | null> => {
+        const uploadOne = async ({ uri, mediaType, isPrimary }: { uri: string; mediaType: "image" | "video"; isPrimary: boolean }): Promise<ConfirmImageItem | null> => {
+          const isVideo = mediaType === "video";
+          const ext = isVideo ? (uri.split(".").pop()?.toLowerCase() === "mov" ? "mov" : "mp4") : "jpg";
+          const contentType = isVideo ? (ext === "mov" ? "video/quicktime" : "video/mp4") : "image/jpeg";
           const filename = isPrimary
-            ? "primary.jpg"
-            : `${Array.from({ length: 4 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("")}.jpg`;
+            ? `primary.${ext}`
+            : `${Array.from({ length: 4 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("")}.${ext}`;
           try {
-            const presigned = await presignImage(created.caseNumber, { filename, contentType: "image/jpeg", folder: "intake" });
-            await uploadImageToS3(presigned.uploadUrl, uri, "image/jpeg");
-            return { key: presigned.key, filename, folder: "intake", isPrimary };
+            const presigned = await presignImage(created.caseNumber, { filename, contentType, folder: "intake" });
+            await uploadImageToS3(presigned.uploadUrl, uri, contentType);
+            return { key: presigned.key, filename, folder: "intake", isPrimary, mediaType };
           } catch (e) {
             console.error(`[upload] FAILED uri=${uri}`, e);
             return null;
@@ -213,12 +240,14 @@ const scanY = scanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 144] }
       <AppHeader title="Scan Number Plate" subtitle="OCR Recognition" showBack />
 
       <View style={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
+        <IntakeStepBar currentStep={1} />
+
         <View style={styles.cameraCard}>
           <View style={styles.cameraSim}>
-            <View style={styles.cornerTL} />
-            <View style={styles.cornerTR} />
-            <View style={styles.cornerBL} />
-            <View style={styles.cornerBR} />
+            <Animated.View style={[styles.cornerTL, { opacity: cornerAnim }]} />
+            <Animated.View style={[styles.cornerTR, { opacity: cornerAnim }]} />
+            <Animated.View style={[styles.cornerBL, { opacity: cornerAnim }]} />
+            <Animated.View style={[styles.cornerBR, { opacity: cornerAnim }]} />
 
             <Animated.View style={[styles.scanLine, { transform: [{ translateY: scanY }] }]} />
 
@@ -231,40 +260,58 @@ const scanY = scanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 144] }
             ) : null}
 
             <Text style={styles.cameraHint}>
-              {scanning ? "Scanning number plate..." : "Scan complete"}
+              {scanning ? `Analyzing${".".repeat(dots)}` : "Scan complete ✓"}
             </Text>
           </View>
         </View>
 
         {!scanning && (
-          <Animated.View style={[styles.resultCard, { opacity: fadeIn, transform: [{ scale: pulseAnim }] }]}>
-            <View style={styles.resultHeader}>
+          <Animated.View style={[styles.resultCard, { transform: [{ scale: cardScaleAnim }] }]}>
+            <Animated.View style={[styles.resultHeader, {
+              opacity: resultAnims[0],
+              transform: [{ translateY: resultAnims[0].interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+            }]}>
               <View style={styles.successBadge}>
                 <Feather name="check" size={14} color="#fff" />
               </View>
               <Text style={styles.resultLabel}>Detected Vehicle Number</Text>
-            </View>
+            </Animated.View>
 
-            <TextInput
-              style={styles.vnInput}
-              value={vn}
-              onChangeText={(t) => setVn(t.toUpperCase().replace(/\s/g, ""))}
-              selectionColor={colors.primary}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              maxLength={11}
-              placeholder="Vehicle number..."
-              placeholderTextColor={colors.textMuted}
-              editable={!createMutation.isPending}
-            />
+            <Animated.View style={{
+              opacity: resultAnims[1],
+              transform: [{ translateY: resultAnims[1].interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }],
+            }}>
+              <TextInput
+                style={styles.vnInput}
+                value={vn}
+                onChangeText={(t) => setVn(t.toUpperCase().replace(/\s/g, ""))}
+                selectionColor={colors.primary}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={11}
+                placeholder="Vehicle number..."
+                placeholderTextColor={colors.textMuted}
+                editable={!createMutation.isPending}
+              />
+            </Animated.View>
 
-            <Text style={styles.editHint}>Tap to edit if OCR result is incorrect</Text>
+            <Animated.View style={{
+              opacity: resultAnims[2],
+              transform: [{ translateY: resultAnims[2].interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+            }}>
+              <Text style={styles.editHint}>Tap to edit if OCR result is incorrect</Text>
+            </Animated.View>
 
-            <View style={styles.metaRow}>
+            <Animated.View style={[styles.metaRow, {
+              opacity: resultAnims[3],
+              transform: [{ translateY: resultAnims[3].interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }],
+            }]}>
               <View style={styles.metaPill}>
                 <Feather name="cpu" size={12} color={colors.primary} />
                 <Text style={styles.metaText}>
-                  {ocrDetected ? "Detected via OCR" : "Entered manually"}
+                  {ocrDetected
+                    ? ocrSource === "textract" ? "AWS Textract" : "PaddleOCR"
+                    : "Entered manually"}
                 </Text>
               </View>
               {vn ? (
@@ -273,18 +320,16 @@ const scanY = scanAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 144] }
                   <Text style={styles.metaText}>{vn.slice(0, 2)}</Text>
                 </View>
               ) : null}
-            </View>
+            </Animated.View>
           </Animated.View>
         )}
 
         {scanning && (
           <View style={styles.scanningCard}>
-            <Animated.View
-              style={[styles.scanDot, {
-                opacity: scanAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.3, 1, 0.3] }),
-              }]}
-            />
-            <Text style={styles.scanningText}>Analyzing image...</Text>
+            <Animated.View style={[styles.scanDot, { opacity: cornerAnim }]} />
+            <Text style={styles.scanningText}>
+              {`Analyzing${".".repeat(dots)}`}
+            </Text>
           </View>
         )}
 

@@ -16,28 +16,36 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import colors from "@/constants/colors";
 
+// Stored as lowercase in DB; displayed via toTitleCase in UI
 const TATA_MODELS = [
-  "Tata Nexon",
-  "Tata Nexon EV",
-  "Tata Punch",
-  "Tata Punch EV",
-  "Tata Tiago",
-  "Tata Tiago EV",
-  "Tata Tigor",
-  "Tata Tigor EV",
-  "Tata Altroz",
-  "Tata Safari",
-  "Tata Harrier",
-  "Tata Curvv",
-  "Tata Curvv EV",
-  "Tata Sierra EV",
-  "Tata Avinya EV",
-  "Tata Zest",
-  "Tata Bolt",
-  "Tata Nano",
-  "Tata Indica",
-  "Tata Indigo",
+  "altroz",
+  "aria",
+  "bolt",
+  "curvv",
+  "harrier",
+  "hexa",
+  "indica",
+  "indigo",
+  "manza",
+  "nano",
+  "new safari",
+  "nexon",
+  "punch",
+  "safari strome",
+  "sierra",
+  "sumo",
+  "tiago",
+  "tigor",
+  "vista",
+  "zest",
 ];
+
+export function toTitleCase(str: string): string {
+  return str
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 interface CarModelDropdownProps {
   value: string;
@@ -54,9 +62,15 @@ export function CarModelDropdown({
   const [search, setSearch] = useState("");
   const insets = useSafeAreaInsets();
 
-  const filtered = TATA_MODELS.filter((m) =>
-    m.toLowerCase().includes(search.toLowerCase())
-  );
+  const q = search.trim().toLowerCase();
+  const filtered = TATA_MODELS.filter((m) => m.includes(q));
+  const showCustomOption = q.length > 0 && !TATA_MODELS.includes(q);
+
+  const select = (model: string) => {
+    onChange(model.toLowerCase());
+    setSearch("");
+    setVisible(false);
+  };
 
   return (
     <>
@@ -72,13 +86,9 @@ export function CarModelDropdown({
             style={[styles.triggerText, !value && styles.placeholder]}
             numberOfLines={1}
           >
-            {value || "Select Tata model..."}
+            {value ? toTitleCase(value) : "Select model..."}
           </Text>
-          <Feather
-            name="chevron-down"
-            size={18}
-            color={colors.textSecondary}
-          />
+          <Feather name="chevron-down" size={18} color={colors.textSecondary} />
         </Pressable>
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
@@ -90,72 +100,86 @@ export function CarModelDropdown({
         onRequestClose={() => setVisible(false)}
       >
         <View style={styles.modalRoot}>
-          <Pressable
-            style={styles.overlay}
-            onPress={() => setVisible(false)}
-          />
+          <Pressable style={styles.overlay} onPress={() => setVisible(false)} />
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : "height"}
           >
-        <View
-          style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}
-        >
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>Select Car Model</Text>
-          <View style={styles.searchWrap}>
-            <Feather
-              name="search"
-              size={16}
-              color={colors.textMuted}
-              style={styles.searchIcon}
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search model..."
-              placeholderTextColor={colors.textMuted}
-              value={search}
-              onChangeText={setSearch}
-              selectionColor={colors.primary}
-              autoFocus
-            />
-          </View>
-          <FlatList
-            data={filtered}
-            keyExtractor={(item) => item}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  styles.item,
-                  value === item && styles.itemSelected,
-                ]}
-                onPress={() => {
-                  onChange(item);
-                  setSearch("");
-                  setVisible(false);
-                }}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.itemText,
-                    value === item && styles.itemTextSelected,
-                  ]}
-                >
-                  {item}
-                </Text>
-                {value === item && (
-                  <Feather name="check" size={16} color={colors.primary} />
+            <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>Select Car Model</Text>
+              <View style={styles.searchWrap}>
+                <Feather
+                  name="search"
+                  size={16}
+                  color={colors.textMuted}
+                  style={styles.searchIcon}
+                />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search or type custom model..."
+                  placeholderTextColor={colors.textMuted}
+                  value={search}
+                  onChangeText={setSearch}
+                  selectionColor={colors.primary}
+                  autoFocus
+                />
+                {search.length > 0 && (
+                  <Pressable onPress={() => setSearch("")} hitSlop={8}>
+                    <Feather name="x" size={15} color={colors.textMuted} />
+                  </Pressable>
                 )}
-              </TouchableOpacity>
-            )}
-            ItemSeparatorComponent={() => (
-              <View style={styles.separator} />
-            )}
-            showsVerticalScrollIndicator={false}
-            style={{ maxHeight: 320 }}
-            keyboardShouldPersistTaps="handled"
-          />
-        </View>
+              </View>
+              <FlatList
+                data={filtered}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.item,
+                      value === item && styles.itemSelected,
+                    ]}
+                    onPress={() => select(item)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.itemText,
+                        value === item && styles.itemTextSelected,
+                      ]}
+                    >
+                      {toTitleCase(item)}
+                    </Text>
+                    {value === item && (
+                      <Feather name="check" size={16} color={colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ListFooterComponent={
+                  showCustomOption ? (
+                    <>
+                      {filtered.length > 0 && <View style={styles.separator} />}
+                      <TouchableOpacity
+                        style={styles.customOption}
+                        onPress={() => select(q)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.customIconWrap}>
+                          <Feather name="plus" size={14} color={colors.primary} />
+                        </View>
+                        <View style={styles.customTextWrap}>
+                          <Text style={styles.customLabel}>Use custom model</Text>
+                          <Text style={styles.customValue}>{toTitleCase(q)}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    </>
+                  ) : null
+                }
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+                showsVerticalScrollIndicator={false}
+                style={{ maxHeight: 340 }}
+                keyboardShouldPersistTaps="handled"
+              />
+            </View>
           </KeyboardAvoidingView>
         </View>
       </Modal>
@@ -287,5 +311,37 @@ const styles = StyleSheet.create({
   separator: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
+  },
+  customOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+  },
+  customIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.primaryFaint,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  customTextWrap: {
+    flex: 1,
+  },
+  customLabel: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  customValue: {
+    fontSize: 15,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    color: colors.primary,
+    marginTop: 1,
   },
 });

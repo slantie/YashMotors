@@ -21,7 +21,17 @@ export interface SendMessageJobData {
   requestedBy: number;
 }
 
-export type WhatsAppJobData = CreateGroupJobData | SendMessageJobData;
+export interface AddToGroupJobData {
+  type: "add_to_group";
+  caseId: number;
+  caseNumber: string;
+  groupId: string;
+  phones: string[];
+  newAdvisorName: string;
+  requestedBy: number;
+}
+
+export type WhatsAppJobData = CreateGroupJobData | SendMessageJobData | AddToGroupJobData;
 
 export const waQueue = new Queue<WhatsAppJobData>("whatsapp", {
   connection: redis,

@@ -6,6 +6,7 @@ import {
 } from "../lib/whatsapp-connection";
 
 const ADMIN_NUMBER = "8758800101";
+const NANDISH_NUMBER = "9909260701";
 
 const router = Router();
 
@@ -146,6 +147,7 @@ router.post("/whatsapp/create-group", async (req: Request, res: Response) => {
     toJid(customerPhone),
     toJid(advisorPhone),
     toJid(ADMIN_NUMBER),
+    toJid(NANDISH_NUMBER),
   ];
 
   let group: Awaited<ReturnType<typeof sock.groupCreate>>;
@@ -192,6 +194,42 @@ router.post("/whatsapp/create-group", async (req: Request, res: Response) => {
     messageSent,
     ...(messageError && { messageError }),
   });
+});
+
+// ── POST /api/whatsapp/add-to-group ──────────────────────────────────────────
+// Adds one or more participants to an existing WhatsApp group.
+
+router.post("/whatsapp/add-to-group", async (req: Request, res: Response) => {
+  const { groupId, phones } = req.body as { groupId?: string; phones?: string[] };
+
+  if (!groupId || !Array.isArray(phones) || phones.length === 0) {
+    res.status(400).json({ success: false, error: "groupId and phones[] are required" });
+    return;
+  }
+
+  if (!isWhatsAppConnected()) {
+    res.status(503).json({ success: false, error: "WhatsApp not connected" });
+    return;
+  }
+
+  let sock;
+  try {
+    sock = getSocket();
+  } catch (err) {
+    res.status(503).json({ success: false, error: err instanceof Error ? err.message : "Socket unavailable" });
+    return;
+  }
+
+  const jids = phones.map(toJid);
+
+  try {
+    await sock.groupParticipantsUpdate(groupId, jids, "add");
+    res.json({ success: true, added: jids });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Failed to add participants";
+    console.error("[WhatsApp] groupParticipantsUpdate failed:", msg);
+    res.status(500).json({ success: false, error: msg });
+  }
 });
 
 // ── POST /api/whatsapp/send-message ───────────────────────────────────────────

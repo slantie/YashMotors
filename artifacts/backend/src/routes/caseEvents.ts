@@ -118,19 +118,23 @@ router.post("/:caseNumber/events", async (req: Request, res: Response): Promise<
 // Writes a case_edited timeline event recording exactly what changed.
 
 const editCaseSchema = z.object({
-  vehicleNumber: z.string().min(1).max(50).optional(),
-  carModel:      z.string().min(1).max(100).optional(),
-  customerPhone: z.string().regex(/^\+?\d{8,15}$/).nullable().optional(),
-  customerName:  z.string().max(100).nullable().optional(),
-  kmCount:       z.string().max(20).nullable().optional(),
-  dueDate:       z.string().max(50).nullable().optional(),
-  deliveryType:  z.string().max(50).nullable().optional(),
-  notes:         z.string().max(5000).nullable().optional(),
+  vehicleNumber:          z.string().min(1).max(50).optional(),
+  carModel:               z.string().min(1).max(100).optional(),
+  customerPhone:          z.string().regex(/^\+?\d{8,15}$/).nullable().optional(),
+  customerName:           z.string().max(100).nullable().optional(),
+  kmCount:                z.string().max(20).nullable().optional(),
+  dueDate:                z.string().max(50).nullable().optional(),
+  deliveryType:           z.string().max(50).nullable().optional(),
+  notes:                  z.string().max(5000).nullable().optional(),
+  customerArrivalStatus:  z.enum(["walk_in", "pickup", "customer_waiting", "breakdown"]).nullable().optional(),
+  serviceType:            z.enum(["service", "repair"]).nullable().optional(),
+  serviceSubType:         z.enum(["major", "minor", "breakdown", "running"]).nullable().optional(),
 });
 
 const EDITABLE_FIELDS = [
   "vehicleNumber", "carModel", "customerPhone", "customerName",
   "kmCount", "dueDate", "deliveryType", "notes",
+  "customerArrivalStatus", "serviceType", "serviceSubType",
 ] as const;
 
 router.patch("/:caseNumber", async (req: Request, res: Response): Promise<void> => {

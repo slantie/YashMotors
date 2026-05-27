@@ -8,12 +8,13 @@ import React, { useEffect, useState } from "react";
 import { Alert, ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { AppHeader } from "@/components/AppHeader";
 import { apiClient } from "@/lib/apiClient";
 import colors from "@/constants/colors";
 import { useAuthStore } from "@/store/useAuthStore";
+import { createUser } from "@/services/users";
 
 const ROLE_LABELS: Record<string, string> = {
   superadmin: "Super Admin",
@@ -39,6 +40,21 @@ export default function SettingsTab() {
   const [changingPin, setChangingPin] = useState(false);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({ name: "", phone: "", role: "advisor" as "admin" | "advisor" | "technician" });
+
+  const addUserMutation = useMutation({
+    mutationFn: () => createUser(newUserForm),
+    onSuccess: (created) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setAddUserOpen(false);
+      setNewUserForm({ name: "", phone: "", role: "advisor" });
+      Alert.alert("User Created", `${created.name} can now log in with phone ${created.phone} and PIN 1234.`);
+    },
+    onError: (e) => {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to create user.");
+    },
+  });
 
   useEffect(() => {
     apiClient.get<{ avatarUrl?: string | null }>("/auth/me")
@@ -236,6 +252,17 @@ export default function SettingsTab() {
           />
         </View>
 
+        {user?.role === "superadmin" && (
+          <View style={styles.card}>
+            <ActionRow
+              icon="user-plus"
+              title="Add New User"
+              subtitle="Create staff account with default PIN 1234"
+              onPress={() => { setNewUserForm({ name: "", phone: "", role: "advisor" }); setAddUserOpen(true); }}
+            />
+          </View>
+        )}
+
         <View style={styles.card}>
           <InfoRow icon="info" label="App Version" value={Constants.expoConfig?.version ?? "—"} />
         </View>
@@ -245,6 +272,76 @@ export default function SettingsTab() {
           <Text style={styles.logoutText}>Logout</Text>
         </Pressable>
       </ScrollView>
+
+      <Modal visible={addUserOpen} transparent animationType="slide" onRequestClose={() => setAddUserOpen(false)}>
+        <KeyboardAvoidingView style={CHANGE_PIN_SHEET_STYLES.sheetBackdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <View style={CHANGE_PIN_SHEET_STYLES.sheet}>
+            <View style={CHANGE_PIN_SHEET_STYLES.sheetHandle} />
+            <Text style={CHANGE_PIN_SHEET_STYLES.sheetTitle}>Add New User</Text>
+            <Text style={CHANGE_PIN_SHEET_STYLES.sheetSubtitle}>Default PIN will be 1234</Text>
+
+            <View style={ADD_USER_STYLES.field}>
+              <Text style={ADD_USER_STYLES.fieldLabel}>Full Name</Text>
+              <TextInput
+                value={newUserForm.name}
+                onChangeText={(v) => setNewUserForm({ ...newUserForm, name: v })}
+                placeholder="e.g. Rahul Sharma"
+                placeholderTextColor={colors.textMuted}
+                style={ADD_USER_STYLES.input}
+                autoCapitalize="words"
+              />
+            </View>
+
+            <View style={ADD_USER_STYLES.field}>
+              <Text style={ADD_USER_STYLES.fieldLabel}>Phone Number</Text>
+              <TextInput
+                value={newUserForm.phone}
+                onChangeText={(v) => setNewUserForm({ ...newUserForm, phone: v })}
+                placeholder="10-digit mobile number"
+                placeholderTextColor={colors.textMuted}
+                style={ADD_USER_STYLES.input}
+                keyboardType="phone-pad"
+                maxLength={15}
+              />
+            </View>
+
+            <View style={ADD_USER_STYLES.field}>
+              <Text style={ADD_USER_STYLES.fieldLabel}>Role</Text>
+              <View style={ADD_USER_STYLES.chipRow}>
+                {(["advisor", "technician", "admin"] as const).map((r) => (
+                  <Pressable
+                    key={r}
+                    onPress={() => setNewUserForm({ ...newUserForm, role: r })}
+                    style={[ADD_USER_STYLES.chip, newUserForm.role === r && ADD_USER_STYLES.chipActive]}
+                  >
+                    <Text style={[ADD_USER_STYLES.chipText, newUserForm.role === r && ADD_USER_STYLES.chipTextActive]}>
+                      {r.charAt(0).toUpperCase() + r.slice(1)}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            <Pressable
+              onPress={() => addUserMutation.mutate()}
+              disabled={addUserMutation.isPending || !newUserForm.name.trim() || newUserForm.phone.length < 10}
+              style={[
+                CHANGE_PIN_SHEET_STYLES.saveBtn,
+                (addUserMutation.isPending || !newUserForm.name.trim() || newUserForm.phone.length < 10) && CHANGE_PIN_SHEET_STYLES.disabled,
+              ]}
+            >
+              {addUserMutation.isPending ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={CHANGE_PIN_SHEET_STYLES.saveBtnText}>Create User</Text>
+              )}
+            </Pressable>
+            <Pressable onPress={() => setAddUserOpen(false)} style={CHANGE_PIN_SHEET_STYLES.sheetCancel}>
+              <Text style={CHANGE_PIN_SHEET_STYLES.sheetCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal visible={changePinOpen} transparent animationType="slide" onRequestClose={() => setChangePinOpen(false)}>
         <KeyboardAvoidingView style={CHANGE_PIN_SHEET_STYLES.sheetBackdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -350,6 +447,49 @@ function ActionRow({
     </Pressable>
   );
 }
+
+const ADD_USER_STYLES = StyleSheet.create({
+  field: { marginBottom: 14 },
+  fieldLabel: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.textSecondary,
+    marginBottom: 7,
+  },
+  input: {
+    height: 50,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBg,
+    paddingHorizontal: 14,
+    color: colors.text,
+    fontSize: 15,
+    fontFamily: "PlusJakartaSans_400Regular",
+  },
+  chipRow: { flexDirection: "row", gap: 8 },
+  chip: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBg,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.textSecondary,
+  },
+  chipTextActive: {
+    color: "#fff",
+    fontFamily: "PlusJakartaSans_600SemiBold",
+  },
+});
 
 const CHANGE_PIN_SHEET_STYLES = StyleSheet.create({
   sheetBackdrop: {

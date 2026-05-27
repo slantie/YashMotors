@@ -24,6 +24,9 @@ const createCaseSchema = z.object({
   dueDate: z.string().max(50).optional(),
   deliveryType: z.string().max(50).optional(),
   notes: z.string().max(5000).optional(),
+  customerArrivalStatus: z.enum(["walk_in", "pickup", "customer_waiting", "breakdown"]).optional(),
+  serviceType: z.enum(["service", "repair"]).optional(),
+  serviceSubType: z.enum(["major", "minor", "breakdown", "running"]).optional(),
 });
 
 const internalStatusSchema = z.object({
@@ -32,7 +35,12 @@ const internalStatusSchema = z.object({
     "polishing", "electrical", "washing", "quality_check", "ready",
     "delivered", "cancelled",
   ]),
-  note: z.string().optional(),
+  note: z.string().max(2000).optional(),
+});
+
+const transferSchema = z.object({
+  targetAdvisorId: z.number().int().positive(),
+  note: z.string().max(500).optional(),
 });
 
 const customerStatusSchema = z.object({
@@ -56,6 +64,9 @@ const caseListSelect = {
   notes: cases.notes,
   internalStatus: cases.internalStatus,
   customerStatus: cases.customerStatus,
+  customerArrivalStatus: cases.customerArrivalStatus,
+  serviceType: cases.serviceType,
+  serviceSubType: cases.serviceSubType,
   whatsappStatus: cases.whatsappStatus,
   advisorId: cases.advisorId,
   createdAt: cases.createdAt,
@@ -243,6 +254,15 @@ router.put(
     if (!c) { res.status(404).json({ error: "Case not found" }); return; }
     if (!canAccessCase(role, c.advisorId, userId) && role !== "technician") {
       res.status(403).json({ error: "Forbidden" }); return;
+    }
+
+    // Technicians may only set operational statuses — not terminal/intake ones
+    const TECHNICIAN_ALLOWED = new Set([
+      "in_progress", "awaiting_parts", "denting", "painting",
+      "polishing", "electrical", "washing", "quality_check", "ready",
+    ]);
+    if (role === "technician" && !TECHNICIAN_ALLOWED.has(parsed.data.status)) {
+      res.status(403).json({ error: "Technicians cannot set this status" }); return;
     }
 
     const prevStatus = c.internalStatus;
@@ -454,6 +474,119 @@ router.post(
         }
       } catch (err) {
         console.error("[push] notify-advisor failed:", err);
+      }
+    })();
+  }
+);
+
+// ── PUT /cases/:caseNumber/transfer ────────────────────────────────────────────
+// Reassigns a case to a different advisor. Admin/superadmin only.
+// If a WhatsApp group exists, enqueues a job to add the new advisor to it.
+
+router.put(
+  "/:caseNumber/transfer",
+  requireRole("superadmin", "admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    const { userId } = (req as AuthRequest).user;
+    const parsed = transferSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten().fieldErrors }); return;
+    }
+
+    const c = await findCase(String(req.params.caseNumber));
+    if (!c) { res.status(404).json({ error: "Case not found" }); return; }
+
+    if (c.advisorId === parsed.data.targetAdvisorId) {
+      res.status(400).json({ error: "Case is already assigned to this advisor" }); return;
+    }
+
+    const [targetAdvisor] = await db
+      .select({ id: users.id, name: users.name, phone: users.phone, role: users.role, isActive: users.isActive })
+      .from(users)
+      .where(eq(users.id, parsed.data.targetAdvisorId))
+      .limit(1);
+
+    if (!targetAdvisor) { res.status(404).json({ error: "Target advisor not found" }); return; }
+    if (!targetAdvisor.isActive) { res.status(400).json({ error: "Target advisor account is inactive" }); return; }
+    if (!["advisor", "admin", "superadmin"].includes(targetAdvisor.role)) {
+      res.status(400).json({ error: "Target user is not an advisor or admin" }); return;
+    }
+
+    const [prevAdvisor] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, c.advisorId))
+      .limit(1);
+
+    await db.update(cases)
+      .set({ advisorId: parsed.data.targetAdvisorId, updatedAt: new Date() })
+      .where(eq(cases.id, c.id));
+
+    const [event] = await db.insert(caseEvents).values({
+      caseId: c.id,
+      eventType: "case_transferred",
+      createdBy: userId,
+      message: parsed.data.note ?? null,
+      metadata: {
+        from: c.advisorId,
+        fromName: prevAdvisor?.name ?? "Unknown",
+        to: parsed.data.targetAdvisorId,
+        toName: targetAdvisor.name,
+      },
+    }).returning();
+
+    const title = "Case Assigned to You";
+    const body = `${c.caseNumber} · ${c.vehicleNumber} transferred to you${parsed.data.note ? ` — ${parsed.data.note}` : ""}`;
+
+    const [notif] = await db.insert(notifications)
+      .values({ userId: parsed.data.targetAdvisorId, caseId: c.id, eventId: event.id, title, body })
+      .returning({ id: notifications.id });
+
+    res.json({ success: true });
+
+    (async () => {
+      try {
+        const [advisor] = await db
+          .select({ pushToken: users.pushToken })
+          .from(users)
+          .where(eq(users.id, parsed.data.targetAdvisorId))
+          .limit(1);
+
+        if (advisor?.pushToken) {
+          const r = await fetch("https://exp.host/--/api/v2/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify([{
+              to: advisor.pushToken,
+              title,
+              body,
+              data: { caseNumber: c.caseNumber },
+              sound: "default",
+            }]),
+          });
+          const d = await r.json().catch(() => null) as { data?: Array<{ status?: string }> } | null;
+          if (d?.data?.[0]?.status === "ok") {
+            await db.update(notifications).set({ pushSent: true }).where(eq(notifications.id, notif.id));
+          }
+        }
+
+        if (c.whatsappGroupId && targetAdvisor.phone) {
+          await waQueue.add(
+            "add_to_group",
+            {
+              type: "add_to_group",
+              caseId: c.id,
+              caseNumber: c.caseNumber,
+              groupId: c.whatsappGroupId,
+              phones: [targetAdvisor.phone],
+              newAdvisorName: targetAdvisor.name,
+              requestedBy: userId,
+            },
+            { attempts: 2, backoff: { type: "fixed", delay: 10000 } }
+          );
+        }
+      } catch (err) {
+        console.error("[transfer] Post-transfer tasks failed:", err);
       }
     })();
   }

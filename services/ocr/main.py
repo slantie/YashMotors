@@ -1,9 +1,11 @@
+import os
 import re
 import io
 import time
 import logging
 from contextlib import asynccontextmanager
 
+import boto3
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -23,6 +25,7 @@ PLATE_RE = re.compile(r"[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{4}")
 
 MAX_DIM = 1920
 MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+TEXTRACT_MAX_BYTES = 5 * 1024 * 1024  # Textract sync limit
 MIN_CONF = 0.5
 MIN_CONF_COMBINE = 0.30   # lower bar for multi-box combination pass only
 SKIP_WORDS = {"IND", "IN", "INDIA"}
@@ -32,6 +35,7 @@ D2L = str.maketrans({"0": "O", "1": "I", "6": "G", "5": "S", "8": "B", "2": "Z"}
 L2D = str.maketrans({"O": "0", "I": "1", "L": "1", "S": "5", "G": "6", "B": "8", "Z": "2"})
 
 reader: PaddleOCR | None = None
+_textract_client = None
 
 
 @asynccontextmanager
@@ -124,6 +128,52 @@ def preprocess(img: Image.Image) -> np.ndarray:
     return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
 
 
+# ── Textract fallback ──────────────────────────────────────────────────────────
+
+def _get_textract_client():
+    global _textract_client
+    if _textract_client is None:
+        _textract_client = boto3.client(
+            "textract",
+            region_name=os.environ.get("AWS_REGION", "ap-southeast-1"),
+        )
+    return _textract_client
+
+
+def _compress_for_textract(data: bytes) -> bytes:
+    """Recompress to JPEG if image exceeds Textract's 5 MB sync limit."""
+    if len(data) <= TEXTRACT_MAX_BYTES:
+        return data
+    logger.info("  Image %d bytes > Textract limit, recompressing to JPEG", len(data))
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    buf.seek(0)
+    result = buf.read()
+    logger.info("  Recompressed: %d bytes", len(result))
+    return result
+
+
+def textract_extract_plate(data: bytes) -> tuple[str, float | None]:
+    """Call AWS Textract DetectDocumentText, scan LINE blocks for a plate match."""
+    client = _get_textract_client()
+    image_bytes = _compress_for_textract(data)
+    response = client.detect_document_text(Document={"Bytes": image_bytes})
+
+    for block in response.get("Blocks", []):
+        if block.get("BlockType") != "LINE":
+            continue
+        text = block.get("Text", "")
+        conf = block.get("Confidence", 0.0) / 100.0  # Textract is 0–100
+        logger.info("  [Textract] LINE: %r  conf=%.2f", text, conf)
+        found = try_extract_plate(text)
+        if found:
+            logger.info("  [Textract] MATCHED: %r (conf=%.2f)", found, conf)
+            return found, conf
+
+    return "", None
+
+
 # ── OCR endpoint ───────────────────────────────────────────────────────────────
 
 @app.post("/ocr")
@@ -207,8 +257,25 @@ async def ocr_plate(image: UploadFile = File(...)):
                 logger.info("  MATCHED from combined: %r", plate)
                 break
 
+    # ── Textract fallback ──────────────────────────────────────────────────────
+    source = "paddle" if plate else "none"
+
+    if not plate:
+        logger.info("  PaddleOCR found no plate — trying Textract fallback")
+        try:
+            tx_plate, tx_conf = textract_extract_plate(data)
+            if tx_plate:
+                plate = tx_plate
+                plate_conf = tx_conf
+                source = "textract"
+                logger.info("  Textract fallback succeeded: %r", plate)
+            else:
+                logger.info("  Textract found no plate either")
+        except Exception as e:
+            logger.error("  Textract fallback error: %s", e)
+
     elapsed_ms = round((time.perf_counter() - t0) * 1000)
-    logger.info("=== done %dms plate=%r ===", elapsed_ms, plate)
+    logger.info("=== done %dms plate=%r source=%s ===", elapsed_ms, plate, source)
 
     return JSONResponse({
         "plate": plate,
@@ -217,6 +284,7 @@ async def ocr_plate(image: UploadFile = File(...)):
         "detection_count": detection_count,
         "processing_time_ms": elapsed_ms,
         "matched": bool(plate),
+        "source": source,
     })
 
 

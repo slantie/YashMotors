@@ -23,6 +23,13 @@ import colors from "@/constants/colors";
 const { width } = Dimensions.get("window");
 const CELL = (width - 32 - 8) / 3;
 
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface MediaItem {
+  uri: string;
+  type: "image" | "video";
+}
+
 // ── Permissions & launchers ────────────────────────────────────────────────────
 
 async function requestCameraPermission(): Promise<boolean> {
@@ -62,41 +69,36 @@ async function takePhoto(): Promise<string | null> {
   return result.assets[0].uri;
 }
 
+async function recordVideo(): Promise<MediaItem | null> {
+  if (!(await requestCameraPermission())) return null;
+  const result = await ImagePickerLib.launchCameraAsync({
+    mediaTypes: ["videos"],
+    quality: 1,
+    videoMaxDuration: 120,
+    allowsEditing: false,
+  });
+  if (result.canceled) return null;
+  return { uri: result.assets[0].uri, type: "video" };
+}
+
 async function pickFromGallery(
   multiple: boolean,
-  mediaTypes: ImagePickerLib.MediaType | ImagePickerLib.MediaType[] = "images",
-): Promise<string[]> {
+  includeVideos = false,
+): Promise<MediaItem[]> {
   if (!(await requestGalleryPermission())) return [];
+  const mediaTypes: ImagePickerLib.MediaType[] = includeVideos
+    ? ["images", "videos"]
+    : ["images"];
   const result = await ImagePickerLib.launchImageLibraryAsync({
     mediaTypes,
     allowsMultipleSelection: multiple,
     quality: 0.85,
   });
   if (result.canceled) return [];
-  return result.assets.map((a) => a.uri);
-}
-
-// ── Source picker (camera vs gallery) ─────────────────────────────────────────
-
-function showSourcePicker(onCamera: () => void, onGallery: () => void) {
-  if (Platform.OS === "ios") {
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        options: ["Cancel", "Take Photo", "Choose from Gallery"],
-        cancelButtonIndex: 0,
-      },
-      (idx) => {
-        if (idx === 1) onCamera();
-        if (idx === 2) onGallery();
-      },
-    );
-  } else {
-    Alert.alert("Add Photo", "Choose source", [
-      { text: "Take Photo", onPress: onCamera },
-      { text: "Choose from Gallery", onPress: onGallery },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  }
+  return result.assets.map((a) => ({
+    uri: a.uri,
+    type: (a.type === "video" ? "video" : "image") as "image" | "video",
+  }));
 }
 
 // ── Primary image picker ──────────────────────────────────────────────────────
@@ -110,19 +112,6 @@ export function PrimaryImagePicker({
   value,
   onChange,
 }: PrimaryImagePickerProps) {
-  const handleEmpty = () => {
-    showSourcePicker(
-      async () => {
-        const uri = await takePhoto();
-        if (uri) onChange(uri);
-      },
-      async () => {
-        const uris = await pickFromGallery(false);
-        if (uris[0]) onChange(uris[0]);
-      },
-    );
-  };
-
   const handleHasImage = () => {
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
@@ -136,8 +125,8 @@ export function PrimaryImagePicker({
             const uri = await takePhoto();
             if (uri) onChange(uri);
           } else if (idx === 2) {
-            const uris = await pickFromGallery(false);
-            if (uris[0]) onChange(uris[0]);
+            const items = await pickFromGallery(false);
+            if (items[0]) onChange(items[0].uri);
           } else if (idx === 3) {
             onChange(null);
           }
@@ -155,8 +144,8 @@ export function PrimaryImagePicker({
         {
           text: "Replace from Gallery",
           onPress: async () => {
-            const uris = await pickFromGallery(false);
-            if (uris[0]) onChange(uris[0]);
+            const items = await pickFromGallery(false);
+            if (items[0]) onChange(items[0].uri);
           },
         },
         {
@@ -172,81 +161,92 @@ export function PrimaryImagePicker({
   return (
     <View style={primaryStyles.wrapper}>
       <View style={primaryStyles.labelRow}>
-        <Text style={primaryStyles.label}>Primary Image</Text>
+        <Text style={primaryStyles.label}>Primary Photo</Text>
       </View>
-      <TouchableOpacity
-        onPress={value ? handleHasImage : handleEmpty}
-        activeOpacity={0.8}
-        style={[primaryStyles.card, value && primaryStyles.hasImage]}
-      >
-        {value ? (
-          <>
-            <Image source={{ uri: value }} style={primaryStyles.image} />
-            <View style={primaryStyles.editBadge}>
-              <Feather name="edit-2" size={12} color="#fff" />
-            </View>
-          </>
-        ) : (
+
+      {value ? (
+        <TouchableOpacity
+          onPress={handleHasImage}
+          activeOpacity={0.8}
+          style={[primaryStyles.card, primaryStyles.hasImage]}
+        >
+          <Image source={{ uri: value }} style={primaryStyles.image} />
+          <View style={primaryStyles.editBadge}>
+            <Feather name="edit-2" size={12} color="#fff" />
+          </View>
+        </TouchableOpacity>
+      ) : (
+        <View style={primaryStyles.card}>
           <View style={primaryStyles.placeholder}>
             <View style={primaryStyles.iconRow}>
-              <View style={primaryStyles.iconBtn}>
+              <Pressable
+                onPress={async () => {
+                  const uri = await takePhoto();
+                  if (uri) onChange(uri);
+                }}
+                style={({ pressed }) => [
+                  primaryStyles.iconBtn,
+                  pressed && primaryStyles.iconBtnPressed,
+                ]}
+              >
                 <Feather name="camera" size={22} color={colors.primary} />
                 <Text style={primaryStyles.iconLabel}>Camera</Text>
-              </View>
+              </Pressable>
               <View style={primaryStyles.iconDivider} />
-              <View style={primaryStyles.iconBtn}>
+              <Pressable
+                onPress={async () => {
+                  const items = await pickFromGallery(false);
+                  if (items[0]) onChange(items[0].uri);
+                }}
+                style={({ pressed }) => [
+                  primaryStyles.iconBtn,
+                  pressed && primaryStyles.iconBtnPressed,
+                ]}
+              >
                 <Feather name="image" size={22} color={colors.primary} />
                 <Text style={primaryStyles.iconLabel}>Gallery</Text>
-              </View>
+              </Pressable>
             </View>
-            <Text style={primaryStyles.placeholderText}>
-              Tap to add primary photo
-            </Text>
+            <Text style={primaryStyles.placeholderText}>Add primary photo</Text>
             <Text style={primaryStyles.placeholderSub}>
               Vehicle front / overview
             </Text>
           </View>
-        )}
-      </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
 
-// ── Additional images picker ──────────────────────────────────────────────────
+// ── Additional media picker ───────────────────────────────────────────────────
 
 interface AdditionalImagesPickerProps {
-  images: string[];
-  onImagesChange: (images: string[]) => void;
-  maxImages?: number;
-  mediaTypes?: ImagePickerLib.MediaType | ImagePickerLib.MediaType[];
+  media: MediaItem[];
+  onMediaChange: (media: MediaItem[]) => void;
 }
 
 export function AdditionalImagesPicker({
-  images,
-  onImagesChange,
-  maxImages = 10,
-  mediaTypes = "images",
+  media,
+  onMediaChange,
 }: AdditionalImagesPickerProps) {
   const [batchOpen, setBatchOpen] = useState(false);
-  const slotsLeft = Math.max(maxImages - images.length, 0);
 
-  const handleAdd = () => {
-    showSourcePicker(
-      () => setBatchOpen(true),
-      async () => {
-        const uris = await pickFromGallery(true, mediaTypes);
-        const next = [...images, ...uris].slice(0, maxImages);
-        onImagesChange(next);
-      },
-    );
+  const handleGallery = async () => {
+    const items = await pickFromGallery(true, true);
+    onMediaChange([...media, ...items]);
+  };
+
+  const handleRecord = async () => {
+    const item = await recordVideo();
+    if (item) onMediaChange([...media, item]);
   };
 
   const handleRemove = (idx: number) => {
-    Alert.alert("Remove image?", undefined, [
+    Alert.alert("Remove media?", undefined, [
       {
         text: "Remove",
         style: "destructive",
-        onPress: () => onImagesChange(images.filter((_, i) => i !== idx)),
+        onPress: () => onMediaChange(media.filter((_, i) => i !== idx)),
       },
       { text: "Cancel", style: "cancel" },
     ]);
@@ -255,50 +255,78 @@ export function AdditionalImagesPicker({
   return (
     <View style={gridStyles.wrapper}>
       <View style={gridStyles.labelRow}>
-        <Text style={gridStyles.label}>Additional Images</Text>
-        <Text style={gridStyles.count}>
-          {images.length}/{maxImages}
-        </Text>
+        <Text style={gridStyles.label}>Additional Media</Text>
+        <Text style={gridStyles.count}>{media.length}</Text>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={gridStyles.scroll}
-      >
-        {images.length < maxImages && (
-          <TouchableOpacity
-            onPress={handleAdd}
-            style={gridStyles.addCell}
-            activeOpacity={0.7}
-          >
-            <Feather name="camera" size={18} color={colors.primary} />
-            <Feather
-              name="plus"
-              size={12}
-              color={colors.primary}
-              style={gridStyles.plusOverlay}
-            />
-          </TouchableOpacity>
-        )}
-        {images.map((uri, idx) => (
-          <View key={`${uri}-${idx}`} style={gridStyles.cell}>
-            <Image source={{ uri }} style={gridStyles.img} />
-            <Pressable
-              onPress={() => handleRemove(idx)}
-              style={gridStyles.remove}
-              hitSlop={4}
-            >
-              <Feather name="x" size={12} color="#fff" />
-            </Pressable>
-          </View>
-        ))}
-      </ScrollView>
+
+      {media.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={gridStyles.scroll}
+        >
+          {media.map((item, idx) => (
+            <View key={`${item.uri}-${idx}`} style={gridStyles.cell}>
+              {item.type === "video" ? (
+                <View style={gridStyles.videoThumb}>
+                  <Feather name="play-circle" size={28} color="rgba(255,255,255,0.9)" />
+                </View>
+              ) : (
+                <Image source={{ uri: item.uri }} style={gridStyles.img} />
+              )}
+              <View style={gridStyles.typeBadge}>
+                <Feather
+                  name={item.type === "video" ? "video" : "image"}
+                  size={9}
+                  color="rgba(255,255,255,0.85)"
+                />
+              </View>
+              <Pressable
+                onPress={() => handleRemove(idx)}
+                style={gridStyles.remove}
+                hitSlop={4}
+              >
+                <Feather name="x" size={12} color="#fff" />
+              </Pressable>
+            </View>
+          ))}
+        </ScrollView>
+      ) : (
+        <View style={gridStyles.emptyHint}>
+          <Feather name="film" size={15} color={colors.textMuted} />
+          <Text style={gridStyles.emptyHintText}>No additional media yet</Text>
+        </View>
+      )}
+
+      <View style={gridStyles.addRow}>
+        <Pressable
+          onPress={() => setBatchOpen(true)}
+          style={({ pressed }) => [gridStyles.addBtn, pressed && gridStyles.addBtnPressed]}
+        >
+          <Feather name="camera" size={15} color={colors.primary} />
+          <Text style={gridStyles.addBtnLabel}>Photos</Text>
+        </Pressable>
+        <Pressable
+          onPress={handleRecord}
+          style={({ pressed }) => [gridStyles.addBtn, pressed && gridStyles.addBtnPressed]}
+        >
+          <Feather name="video" size={15} color={colors.primary} />
+          <Text style={gridStyles.addBtnLabel}>Record</Text>
+        </Pressable>
+        <Pressable
+          onPress={handleGallery}
+          style={({ pressed }) => [gridStyles.addBtn, pressed && gridStyles.addBtnPressed]}
+        >
+          <Feather name="image" size={15} color={colors.primary} />
+          <Text style={gridStyles.addBtnLabel}>Gallery</Text>
+        </Pressable>
+      </View>
+
       <BatchCameraModal
         visible={batchOpen}
-        maxImages={slotsLeft}
         onClose={() => setBatchOpen(false)}
-        onConfirm={(uris) => {
-          onImagesChange([...images, ...uris].slice(0, maxImages));
+        onConfirm={(items) => {
+          onMediaChange([...media, ...items]);
           setBatchOpen(false);
         }}
       />
@@ -310,66 +338,79 @@ export function AdditionalImagesPicker({
 
 interface BatchCameraModalProps {
   visible: boolean;
-  maxImages: number;
   onClose: () => void;
-  onConfirm: (uris: string[]) => void;
+  onConfirm: (items: MediaItem[]) => void;
 }
 
-function BatchCameraModal({
-  visible,
-  maxImages,
-  onClose,
-  onConfirm,
-}: BatchCameraModalProps) {
+function BatchCameraModal({ visible, onClose, onConfirm }: BatchCameraModalProps) {
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
-  const [pending, setPending] = useState<string[]>([]);
+  const [pending, setPending] = useState<MediaItem[]>([]);
   const [capturing, setCapturing] = useState(false);
+  const [mediaMode, setMediaMode] = useState<"picture" | "video">("picture");
+  const [isRecording, setIsRecording] = useState(false);
 
   const resetAndClose = () => {
+    if (isRecording) cameraRef.current?.stopRecording();
     setPending([]);
     setCapturing(false);
+    setIsRecording(false);
+    setMediaMode("picture");
     onClose();
   };
 
-  const handleCapture = async () => {
-    if (capturing || pending.length >= maxImages) return;
-
-    if (!permission?.granted) {
-      const next = await requestPermission();
-      if (!next.granted) {
-        Alert.alert(
-          "Camera Permission",
-          "Allow Yash Motors App to access your camera in Settings.",
-          [{ text: "OK" }],
-        );
-        return;
-      }
+  const ensurePermission = async (): Promise<boolean> => {
+    if (permission?.granted) return true;
+    const next = await requestPermission();
+    if (!next.granted) {
+      Alert.alert("Camera Permission", "Allow Yash Motors App to access your camera in Settings.", [{ text: "OK" }]);
+      return false;
     }
+    return true;
+  };
 
+  const handlePhotoCapture = async () => {
+    if (capturing || !(await ensurePermission())) return;
     try {
       setCapturing(true);
-      const photo = await cameraRef.current?.takePictureAsync({
-        quality: 0.85,
-        skipProcessing: false,
-      });
-      if (photo?.uri) {
-        setPending((prev) => [...prev, photo.uri].slice(0, maxImages));
-      }
+      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.85, skipProcessing: false });
+      if (photo?.uri) setPending((prev) => [...prev, { uri: photo.uri, type: "image" }]);
     } finally {
       setCapturing(false);
     }
   };
 
-  const handleRemove = (idx: number) => {
-    setPending((prev) => prev.filter((_, i) => i !== idx));
+  const handleVideoToggle = async () => {
+    if (!(await ensurePermission())) return;
+    if (isRecording) {
+      cameraRef.current?.stopRecording();
+    } else {
+      setIsRecording(true);
+      try {
+        const result = await cameraRef.current?.recordAsync({ maxDuration: 120 });
+        if (result?.uri) setPending((prev) => [...prev, { uri: result.uri, type: "video" }]);
+      } catch {
+        // recording cancelled or stopped externally
+      } finally {
+        setIsRecording(false);
+      }
+    }
   };
+
+  const handleShutter = mediaMode === "picture" ? handlePhotoCapture : handleVideoToggle;
 
   const handleConfirm = () => {
     if (pending.length === 0) return;
     onConfirm(pending);
     setPending([]);
   };
+
+  const photoCount = pending.filter((p) => p.type === "image").length;
+  const videoCount = pending.filter((p) => p.type === "video").length;
+  const counterText = [
+    photoCount > 0 ? `${photoCount} photo${photoCount !== 1 ? "s" : ""}` : null,
+    videoCount > 0 ? `${videoCount} video${videoCount !== 1 ? "s" : ""}` : null,
+  ].filter(Boolean).join(", ") || "Ready";
 
   return (
     <Modal
@@ -384,58 +425,48 @@ function BatchCameraModal({
             ref={cameraRef}
             style={batchStyles.camera}
             facing="back"
-            mode="picture"
+            mode={mediaMode}
           />
         ) : (
           <View style={batchStyles.permissionPane}>
             <Feather name="camera" size={34} color={colors.textMuted} />
-            <Text style={batchStyles.permissionTitle}>
-              Camera access needed
-            </Text>
-            <TouchableOpacity
-              onPress={requestPermission}
-              style={batchStyles.permissionBtn}
-              activeOpacity={0.8}
-            >
+            <Text style={batchStyles.permissionTitle}>Camera access needed</Text>
+            <TouchableOpacity onPress={requestPermission} style={batchStyles.permissionBtn} activeOpacity={0.8}>
               <Text style={batchStyles.permissionBtnText}>Allow Camera</Text>
             </TouchableOpacity>
           </View>
         )}
 
         <View style={batchStyles.topBar}>
-          <Pressable
-            onPress={resetAndClose}
-            style={batchStyles.iconBtn}
-            hitSlop={8}
-          >
+          <Pressable onPress={resetAndClose} style={batchStyles.iconBtn} hitSlop={8}>
             <Feather name="x" size={20} color="#fff" />
           </Pressable>
-          <Text style={batchStyles.counter}>
-            {pending.length}/{maxImages}
-          </Text>
+          <View style={batchStyles.counterRow}>
+            {isRecording && <View style={batchStyles.recDot} />}
+            <Text style={batchStyles.counter}>{isRecording ? "Recording..." : counterText}</Text>
+          </View>
           <Pressable
             onPress={handleConfirm}
             disabled={pending.length === 0}
-            style={[
-              batchStyles.doneBtn,
-              pending.length === 0 && batchStyles.doneBtnDisabled,
-            ]}
+            style={[batchStyles.doneBtn, pending.length === 0 && batchStyles.doneBtnDisabled]}
           >
             <Text style={batchStyles.doneText}>Confirm</Text>
           </Pressable>
         </View>
 
         <View style={batchStyles.bottomPanel}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={batchStyles.pendingStrip}
-          >
-            {pending.map((uri, idx) => (
-              <View key={`${uri}-${idx}`} style={batchStyles.pendingCell}>
-                <Image source={{ uri }} style={batchStyles.pendingImage} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={batchStyles.pendingStrip}>
+            {pending.map((item, idx) => (
+              <View key={`${item.uri}-${idx}`} style={batchStyles.pendingCell}>
+                {item.type === "video" ? (
+                  <View style={batchStyles.pendingVideoThumb}>
+                    <Feather name="video" size={18} color="rgba(255,255,255,0.9)" />
+                  </View>
+                ) : (
+                  <Image source={{ uri: item.uri }} style={batchStyles.pendingImage} />
+                )}
                 <Pressable
-                  onPress={() => handleRemove(idx)}
+                  onPress={() => setPending((prev) => prev.filter((_, i) => i !== idx))}
                   style={batchStyles.pendingRemove}
                   hitSlop={4}
                 >
@@ -447,41 +478,40 @@ function BatchCameraModal({
 
           <View style={batchStyles.controls}>
             <View style={batchStyles.sideSlot}>
-              <Text style={batchStyles.helperText}>
-                {maxImages - pending.length} left
-              </Text>
+              <Pressable
+                onPress={() => { if (!isRecording) setMediaMode((m) => m === "picture" ? "video" : "picture"); }}
+                style={batchStyles.modeToggle}
+                hitSlop={8}
+              >
+                <Feather name={mediaMode === "picture" ? "video" : "camera"} size={16} color="#fff" />
+                <Text style={batchStyles.modeToggleText}>{mediaMode === "picture" ? "Video" : "Photo"}</Text>
+              </Pressable>
             </View>
+
             <Pressable
-              onPress={handleCapture}
-              disabled={
-                !permission?.granted || capturing || pending.length >= maxImages
-              }
+              onPress={handleShutter}
+              disabled={!permission?.granted || capturing}
               style={[
                 batchStyles.shutter,
-                (!permission?.granted || pending.length >= maxImages) &&
-                  batchStyles.shutterDisabled,
+                mediaMode === "video" && batchStyles.shutterVideo,
+                isRecording && batchStyles.shutterRecording,
+                !permission?.granted && batchStyles.shutterDisabled,
               ]}
             >
               {capturing ? (
-                <ActivityIndicator color={colors.primary} />
+                <ActivityIndicator color={isRecording ? "#fff" : colors.primary} />
+              ) : isRecording ? (
+                <View style={batchStyles.stopInner} />
+              ) : mediaMode === "video" ? (
+                <View style={batchStyles.recordInner} />
               ) : (
                 <View style={batchStyles.shutterInner} />
               )}
             </Pressable>
+
             <View style={batchStyles.sideSlot}>
-              <Pressable
-                onPress={() => setPending([])}
-                disabled={pending.length === 0}
-                hitSlop={8}
-              >
-                <Text
-                  style={[
-                    batchStyles.clearText,
-                    pending.length === 0 && batchStyles.clearTextDisabled,
-                  ]}
-                >
-                  Clear
-                </Text>
+              <Pressable onPress={() => setPending([])} disabled={pending.length === 0} hitSlop={8}>
+                <Text style={[batchStyles.clearText, pending.length === 0 && batchStyles.clearTextDisabled]}>Clear</Text>
               </Pressable>
             </View>
           </View>
@@ -540,7 +570,6 @@ const primaryStyles = StyleSheet.create({
   iconRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 0,
     marginBottom: 8,
     backgroundColor: colors.surface,
     borderRadius: 12,
@@ -553,6 +582,9 @@ const primaryStyles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 10,
     gap: 4,
+  },
+  iconBtnPressed: {
+    backgroundColor: colors.primaryFaint,
   },
   iconDivider: {
     width: 1,
@@ -601,6 +633,44 @@ const gridStyles = StyleSheet.create({
     gap: 8,
     paddingVertical: 2,
   },
+  emptyHint: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+  },
+  emptyHintText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: colors.textMuted,
+  },
+  addRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  addBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBg,
+  },
+  addBtnPressed: {
+    backgroundColor: colors.primaryFaint,
+    borderColor: colors.primary,
+  },
+  addBtnLabel: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.primary,
+  },
   cell: {
     width: CELL,
     height: CELL,
@@ -611,6 +681,21 @@ const gridStyles = StyleSheet.create({
     width: "100%",
     height: "100%",
     resizeMode: "cover",
+  },
+  videoThumb: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#1a1a2e",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeBadge: {
+    position: "absolute",
+    bottom: 4,
+    left: 4,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 4,
+    padding: 3,
   },
   remove: {
     position: "absolute",
@@ -623,33 +708,11 @@ const gridStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  addCell: {
-    width: CELL,
-    height: CELL,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderStyle: "dashed",
-    backgroundColor: colors.inputBg,
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
-  },
-  plusOverlay: {
-    position: "absolute",
-    bottom: "28%",
-    right: "28%",
-  },
 });
 
 const batchStyles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
-  camera: {
-    ...StyleSheet.absoluteFillObject,
-  },
+  root: { flex: 1, backgroundColor: "#000" },
+  camera: { ...StyleSheet.absoluteFillObject },
   permissionPane: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
@@ -712,9 +775,7 @@ const batchStyles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 14,
   },
-  doneBtnDisabled: {
-    opacity: 0.45,
-  },
+  doneBtnDisabled: { opacity: 0.45 },
   doneText: {
     fontSize: 13,
     fontFamily: "PlusJakartaSans_700Bold",
@@ -745,11 +806,7 @@ const batchStyles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.42)",
     backgroundColor: colors.surface,
   },
-  pendingImage: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "cover",
-  },
+  pendingImage: { width: "100%", height: "100%", resizeMode: "cover" },
   pendingRemove: {
     position: "absolute",
     top: 3,
@@ -768,10 +825,7 @@ const batchStyles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 34,
   },
-  sideSlot: {
-    width: 72,
-    alignItems: "center",
-  },
+  sideSlot: { width: 72, alignItems: "center" },
   helperText: {
     fontSize: 12,
     fontFamily: "PlusJakartaSans_600SemiBold",
@@ -784,8 +838,33 @@ const batchStyles = StyleSheet.create({
     fontWeight: "600" as const,
     color: "#fff",
   },
-  clearTextDisabled: {
-    color: "rgba(255,255,255,0.35)",
+  clearTextDisabled: { color: "rgba(255,255,255,0.35)" },
+  counterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  recDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#FF3B30",
+  },
+  pendingVideoThumb: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#1a1a2e",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modeToggle: {
+    alignItems: "center",
+    gap: 3,
+  },
+  modeToggleText: {
+    fontSize: 10,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: "rgba(255,255,255,0.85)",
   },
   shutter: {
     width: 72,
@@ -797,13 +876,30 @@ const batchStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  shutterDisabled: {
-    opacity: 0.45,
+  shutterVideo: {
+    borderColor: "#FF3B30",
   },
+  shutterRecording: {
+    borderColor: "#FF3B30",
+    backgroundColor: "rgba(255,59,48,0.2)",
+  },
+  shutterDisabled: { opacity: 0.45 },
   shutterInner: {
     width: 52,
     height: 52,
     borderRadius: 26,
     backgroundColor: "#fff",
+  },
+  recordInner: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "#FF3B30",
+  },
+  stopInner: {
+    width: 26,
+    height: 26,
+    borderRadius: 4,
+    backgroundColor: "#FF3B30",
   },
 });

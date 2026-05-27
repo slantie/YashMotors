@@ -9,7 +9,6 @@ import {
   ActionSheetIOS,
   ActivityIndicator,
   Alert,
-  Animated,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -17,6 +16,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -24,7 +24,15 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PinchGestureHandler, State } from "react-native-gesture-handler";
+import ImageViewing from "react-native-image-viewing";
+import { VideoView, useVideoPlayer } from "expo-video";
+
+let RNShare: { open: (opts: Record<string, unknown>) => Promise<void> } | null = null;
+try {
+  RNShare = require("react-native-share").default;
+} catch {
+  // Expo Go — sharing unavailable
+}
 
 import { AppHeader } from "@/components/AppHeader";
 import { Toast } from "@/components/Toast";
@@ -38,10 +46,12 @@ import {
   deleteCase,
   fetchCase,
   notifyAdvisor,
+  transferCase,
   updateCustomerStatus,
   updateInternalStatus,
   type CaseDetail,
 } from "@/services/cases";
+import { fetchAdvisors, type UserListItem } from "@/services/users";
 import {
   confirmImages,
   deleteImage,
@@ -62,10 +72,9 @@ import {
 } from "@/services/whatsapp";
 import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
-import * as IntentLauncher from "expo-intent-launcher";
 import * as MediaLibrary from "expo-media-library";
-import * as Sharing from "expo-sharing";
 import { formatCaseMessage } from "@/utils/messageFormatter";
+import { toTitleCase } from "@/components/CarModelDropdown";
 
 const INTERNAL_STATUSES: InternalStatus[] = [
   "intake",
@@ -94,7 +103,7 @@ const TECHNICIAN_STATUSES: InternalStatus[] = [
   "ready",
 ];
 
-const TECH_TIMELINE_EVENTS = ["intake_created", "internal_status_change", "image_uploaded"];
+const TECH_TIMELINE_EVENTS = ["intake_created", "internal_status_change", "image_uploaded", "case_transferred"];
 
 const CUSTOMER_STATUSES: CustomerStatus[] = [
   "received",
@@ -103,6 +112,20 @@ const CUSTOMER_STATUSES: CustomerStatus[] = [
   "ready_for_delivery",
   "delivered",
 ];
+
+const ARRIVAL_LABELS: Record<string, string> = {
+  walk_in: "Walk-in",
+  pickup: "Pickup",
+  customer_waiting: "Customer Waiting",
+  breakdown: "Breakdown",
+};
+
+const SERVICE_SUB_LABELS: Record<string, string> = {
+  major: "Major",
+  minor: "Minor",
+  breakdown: "Breakdown",
+  running: "Running",
+};
 
 function formatDate(value?: string) {
   if (!value) return "-";
@@ -113,6 +136,21 @@ function formatDate(value?: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function VideoViewerContent({ url }: { url: string }) {
+  const player = useVideoPlayer(url, (p) => {
+    p.loop = false;
+  });
+  return (
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFill}
+      contentFit="contain"
+      allowsFullscreen
+      nativeControls
+    />
+  );
 }
 
 export default function CaseDetailScreen() {
@@ -136,7 +174,8 @@ export default function CaseDetailScreen() {
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [imageFolder, setImageFolder] = useState<"intake" | "repairs">(role === "technician" ? "repairs" : "intake");
-  const [viewerState, setViewerState] = useState<{ images: CaseEventImage[]; currentIndex: number } | null>(null);
+  const [imageViewerState, setImageViewerState] = useState<{ images: CaseEventImage[]; startIndex: number } | null>(null);
+  const [videoViewerItem, setVideoViewerItem] = useState<CaseEventImage | null>(null);
   const [downloadingImage, setDownloadingImage] = useState(false);
   const canEditCase = isPrivileged;
   const canUseWhatsApp = isPrivileged;
@@ -146,15 +185,6 @@ export default function CaseDetailScreen() {
   const [waSendOpen, setWaSendOpen] = useState(false);
   const [waSendMsg, setWaSendMsg] = useState("");
   const { message: toastMsg, visible: toastVisible, showToast } = useToast();
-  const scaleAnim = React.useRef(new Animated.Value(1)).current;
-  const scaleBase = React.useRef(1);
-  const lastScale = React.useRef(1);
-
-  const resetScale = () => {
-    scaleBase.current = 1;
-    lastScale.current = 1;
-    scaleAnim.setValue(1);
-  };
 
   const waStatusQuery = useWhatsAppStatus(caseNumber, canUseWhatsApp);
 
@@ -162,6 +192,13 @@ export default function CaseDetailScreen() {
     queryKey: ["case", caseNumber],
     queryFn: () => fetchCase(caseNumber),
     enabled: !!caseNumber,
+  });
+
+  const advisorsQuery = useQuery({
+    queryKey: ["users"],
+    queryFn: fetchAdvisors,
+    enabled: isAdmin,
+    staleTime: 60_000,
   });
 
   const events = useMemo(
@@ -202,7 +239,35 @@ export default function CaseDetailScreen() {
 
   const handleEditSave = () => {
     if (!editForm.vehicleNumber?.trim() || !editForm.carModel?.trim()) return;
-    editMutation.mutate(editForm);
+    const ENUM_FIELDS = ["customerArrivalStatus", "serviceType", "serviceSubType"] as const;
+    const patch: Record<string, string | null> = { ...editForm };
+    for (const f of ENUM_FIELDS) {
+      if (patch[f] === "") patch[f] = null;
+    }
+    editMutation.mutate(patch as Record<string, string>);
+  };
+
+  const handleShareCaseInternally = async () => {
+    if (!data) return;
+    const lines: string[] = [
+      `*Case: ${data.caseNumber}*`,
+      `Vehicle: ${data.vehicleNumber}`,
+      `Model: ${toTitleCase(data.carModel)}`,
+    ];
+    if (data.customerName) lines.push(`Customer: ${data.customerName}`);
+    if (data.customerPhone) lines.push(`Phone: ${data.customerPhone}`);
+    if (data.kmCount) lines.push(`KM: ${data.kmCount}`);
+    if (data.dueDate) lines.push(`Due: ${data.dueDate}`);
+    if (data.customerArrivalStatus) lines.push(`Arrival: ${ARRIVAL_LABELS[data.customerArrivalStatus] ?? data.customerArrivalStatus}`);
+    if (data.serviceType) {
+      const sub = data.serviceSubType ? ` — ${SERVICE_SUB_LABELS[data.serviceSubType] ?? data.serviceSubType}` : "";
+      lines.push(`Service: ${data.serviceType === "service" ? `Service${sub}` : "Repair"}`);
+    }
+    lines.push(`Internal: ${statusLabel(data.internalStatus)}`);
+    lines.push(`Customer: ${statusLabel(data.customerStatus)}`);
+    lines.push(`Advisor: ${data.advisor.name}`);
+    if (data.notes) lines.push(`Notes: ${data.notes}`);
+    await Share.share({ message: lines.join("\n") });
   };
 
   const createGroupMutation = useMutation({
@@ -248,11 +313,11 @@ export default function CaseDetailScreen() {
     },
   });
 
-  React.useEffect(() => {
-    if (viewerState) resetScale();
-  }, [viewerState ? viewerState.currentIndex : null]);
 
   const [submitDone, setSubmitDone] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferAdvisorId, setTransferAdvisorId] = useState<number | null>(null);
+  const [transferNote, setTransferNote] = useState("");
 
   const notifyMutation = useMutation({
     mutationFn: () => notifyAdvisor(caseNumber),
@@ -289,6 +354,21 @@ export default function CaseDetailScreen() {
     },
     onError: (err) => {
       Alert.alert("Error", err instanceof Error ? err.message : "Failed to delete case.");
+    },
+  });
+
+  const transferMutation = useMutation({
+    mutationFn: () => transferCase(caseNumber, transferAdvisorId!, transferNote.trim() || undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["case", caseNumber] });
+      queryClient.invalidateQueries({ queryKey: ["cases"] });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setTransferOpen(false);
+      setTransferAdvisorId(null);
+      setTransferNote("");
+    },
+    onError: (err) => {
+      Alert.alert("Error", err instanceof Error ? err.message : "Transfer failed.");
     },
   });
 
@@ -350,14 +430,32 @@ export default function CaseDetailScreen() {
         </View>
       ) : caseQuery.isError || !data ? (
         <View style={styles.center}>
-          <Text style={styles.emptyTitle}>Could not load case</Text>
-          <Text style={styles.emptyText}>
-            {caseQuery.error instanceof Error ? caseQuery.error.message : "Please try again."}
-          </Text>
-          <Pressable onPress={() => caseQuery.refetch()} style={styles.retryBtn}>
-            <Feather name="refresh-cw" size={14} color={colors.primary} />
-            <Text style={styles.retryText}>Retry</Text>
-          </Pressable>
+          {(() => {
+            const msg = caseQuery.error instanceof Error ? caseQuery.error.message.toLowerCase() : "";
+            const isNotFound = msg.includes("not found") || msg.includes("404");
+            return (
+              <>
+                <Feather name={isNotFound ? "folder-minus" : "alert-circle"} size={36} color={colors.textMuted} style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyTitle}>{isNotFound ? "Case Not Found" : "Could not load case"}</Text>
+                <Text style={styles.emptyText}>
+                  {isNotFound
+                    ? "This case may have been deleted."
+                    : caseQuery.error instanceof Error ? caseQuery.error.message : "Please try again."}
+                </Text>
+                {isNotFound ? (
+                  <Pressable onPress={() => router.replace("/(cases)")} style={styles.retryBtn}>
+                    <Feather name="arrow-left" size={14} color={colors.primary} />
+                    <Text style={styles.retryText}>Back to Cases</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable onPress={() => caseQuery.refetch()} style={styles.retryBtn}>
+                    <Feather name="refresh-cw" size={14} color={colors.primary} />
+                    <Text style={styles.retryText}>Retry</Text>
+                  </Pressable>
+                )}
+              </>
+            );
+          })()}
         </View>
       ) : (
         <ScrollView
@@ -368,7 +466,7 @@ export default function CaseDetailScreen() {
           <View style={styles.heroCard}>
             <Text style={styles.caseNumber}>{data.caseNumber}</Text>
             <Text style={styles.vehicle}>{data.vehicleNumber}</Text>
-            <Text style={styles.model}>{data.carModel}</Text>
+            <Text style={styles.model}>{toTitleCase(data.carModel)}</Text>
             <View style={styles.badgeRow}>
               <StatusBadge status={data.internalStatus} type="internal" />
               {!isTechnician && <StatusBadge status={data.customerStatus} type="customer" />}
@@ -409,7 +507,16 @@ export default function CaseDetailScreen() {
                   caseNumber={caseNumber}
                   folder={imageFolder}
                   role={role}
-                  onImageView={(imgs, idx) => setViewerState({ images: imgs, currentIndex: idx })}
+                  onImageView={(imgs, idx) => {
+                    const item = imgs[idx];
+                    if (item.mediaType === "video") {
+                      setVideoViewerItem(item);
+                    } else {
+                      const onlyImages = imgs.filter((m) => m.mediaType !== "video");
+                      const startIndex = onlyImages.findIndex((m) => m.id === item.id);
+                      setImageViewerState({ images: onlyImages, startIndex: Math.max(0, startIndex) });
+                    }
+                  }}
                 />
               </View>
 
@@ -497,9 +604,26 @@ export default function CaseDetailScreen() {
                 <Info label="Due Date" value={data.dueDate} />
                 <Info label="Delivery Type" value={data.deliveryType} />
                 <Info label="Customer Phone" value={data.customerPhone} />
+                {data.customerArrivalStatus ? (
+                  <Info label="Arrival Status" value={ARRIVAL_LABELS[data.customerArrivalStatus] ?? data.customerArrivalStatus} />
+                ) : null}
+                {data.serviceType ? (
+                  <Info label="Service Type" value={
+                    data.serviceType === "service"
+                      ? `Service${data.serviceSubType ? ` — ${SERVICE_SUB_LABELS[data.serviceSubType] ?? data.serviceSubType}` : ""}`
+                      : "Repair"
+                  } />
+                ) : null}
                 <Info label="Advisor" value={`${data.advisor.name} (${data.advisor.phone})`} />
                 <Info label="Created" value={formatDate(data.createdAt)} />
                 {data.notes ? <Info label="Notes" value={data.notes} /> : null}
+                <Pressable
+                  onPress={handleShareCaseInternally}
+                  style={styles.shareInternalBtn}
+                >
+                  <Feather name="share-2" size={13} color={colors.textSecondary} />
+                  <Text style={styles.shareInternalText}>Share Case Details</Text>
+                </Pressable>
                 {canEditCase && (
                   <Pressable
                     onPress={() => {
@@ -511,6 +635,9 @@ export default function CaseDetailScreen() {
                         dueDate: data.dueDate ?? "",
                         deliveryType: data.deliveryType ?? "",
                         notes: data.notes ?? "",
+                        customerArrivalStatus: data.customerArrivalStatus ?? "",
+                        serviceType: data.serviceType ?? "",
+                        serviceSubType: data.serviceSubType ?? "",
                       });
                       setEditOpen(true);
                     }}
@@ -594,33 +721,60 @@ export default function CaseDetailScreen() {
                     caseNumber={caseNumber}
                     folder="intake"
                     role={role}
-                    onImageView={(imgs, idx) => setViewerState({ images: imgs, currentIndex: idx })}
+                    onImageView={(imgs, idx) => {
+                    const item = imgs[idx];
+                    if (item.mediaType === "video") {
+                      setVideoViewerItem(item);
+                    } else {
+                      const onlyImages = imgs.filter((m) => m.mediaType !== "video");
+                      const startIndex = onlyImages.findIndex((m) => m.id === item.id);
+                      setImageViewerState({ images: onlyImages, startIndex: Math.max(0, startIndex) });
+                    }
+                  }}
                   />
                 ) : (
                   <ImagesGrid
                     caseNumber={caseNumber}
                     folder="repairs"
                     role={role}
-                    onImageView={(imgs, idx) => setViewerState({ images: imgs, currentIndex: idx })}
+                    onImageView={(imgs, idx) => {
+                    const item = imgs[idx];
+                    if (item.mediaType === "video") {
+                      setVideoViewerItem(item);
+                    } else {
+                      const onlyImages = imgs.filter((m) => m.mediaType !== "video");
+                      const startIndex = onlyImages.findIndex((m) => m.id === item.id);
+                      setImageViewerState({ images: onlyImages, startIndex: Math.max(0, startIndex) });
+                    }
+                  }}
                   />
                 )}
               </View>
 
               {isAdmin && (
-                <Pressable
-                  onPress={handleDeleteCase}
-                  disabled={deleteMutation.isPending}
-                  style={[styles.deleteCaseBtn, deleteMutation.isPending && styles.disabled]}
-                >
-                  {deleteMutation.isPending ? (
-                    <ActivityIndicator color={colors.destructive} size="small" />
-                  ) : (
-                    <>
-                      <Feather name="trash-2" size={15} color={colors.destructive} />
-                      <Text style={styles.deleteCaseBtnText}>Delete Case</Text>
-                    </>
-                  )}
-                </Pressable>
+                <>
+                  <Pressable
+                    onPress={() => { setTransferAdvisorId(null); setTransferNote(""); setTransferOpen(true); }}
+                    style={styles.transferCaseBtn}
+                  >
+                    <Feather name="shuffle" size={15} color={colors.primary} />
+                    <Text style={styles.transferCaseBtnText}>Transfer Case</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleDeleteCase}
+                    disabled={deleteMutation.isPending}
+                    style={[styles.deleteCaseBtn, deleteMutation.isPending && styles.disabled]}
+                  >
+                    {deleteMutation.isPending ? (
+                      <ActivityIndicator color={colors.destructive} size="small" />
+                    ) : (
+                      <>
+                        <Feather name="trash-2" size={15} color={colors.destructive} />
+                        <Text style={styles.deleteCaseBtnText}>Delete Case</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </>
               )}
 
 
@@ -696,13 +850,27 @@ export default function CaseDetailScreen() {
                 }
                 keyboardType="numeric"
               />
-              <EditField
-                label="Due Date"
-                value={editForm.dueDate ?? ""}
-                onChangeText={(v) =>
-                  setEditForm({ ...editForm, dueDate: v })
-                }
-              />
+              {/* Due Date */}
+              <View style={styles.editField}>
+                <Text style={styles.editFieldLabel}>Due Date</Text>
+                <View style={styles.editChipRow}>
+                  {([
+                    { id: "today", label: "Same Day" },
+                    { id: "tomorrow", label: "Tomorrow" },
+                    { id: "day-after", label: "Day After" },
+                  ] as const).map((opt) => (
+                    <Pressable
+                      key={opt.id}
+                      onPress={() => setEditForm({ ...editForm, dueDate: editForm.dueDate === opt.id ? "" : opt.id })}
+                      style={[styles.editChip, editForm.dueDate === opt.id && styles.editChipActive]}
+                    >
+                      <Text style={[styles.editChipText, editForm.dueDate === opt.id && styles.editChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
               <EditField
                 label="Delivery Type"
                 value={editForm.deliveryType ?? ""}
@@ -718,6 +886,66 @@ export default function CaseDetailScreen() {
                 }
                 multiline
               />
+
+              {/* Arrival Status */}
+              <View style={styles.editField}>
+                <Text style={styles.editFieldLabel}>Arrival Status</Text>
+                <View style={styles.editChipRow}>
+                  {(["walk_in", "pickup", "customer_waiting", "breakdown"] as const).map((s) => (
+                    <Pressable
+                      key={s}
+                      onPress={() => setEditForm({ ...editForm, customerArrivalStatus: editForm.customerArrivalStatus === s ? "" : s })}
+                      style={[styles.editChip, editForm.customerArrivalStatus === s && styles.editChipActive]}
+                    >
+                      <Text style={[styles.editChipText, editForm.customerArrivalStatus === s && styles.editChipTextActive]}>
+                        {ARRIVAL_LABELS[s]}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {/* Service Type */}
+              <View style={styles.editField}>
+                <Text style={styles.editFieldLabel}>Service Type</Text>
+                <View style={styles.editChipRow}>
+                  {(["service", "repair"] as const).map((s) => (
+                    <Pressable
+                      key={s}
+                      onPress={() => setEditForm({
+                        ...editForm,
+                        serviceType: editForm.serviceType === s ? "" : s,
+                        serviceSubType: s === "repair" ? "" : editForm.serviceSubType,
+                      })}
+                      style={[styles.editChip, editForm.serviceType === s && styles.editChipActive]}
+                    >
+                      <Text style={[styles.editChipText, editForm.serviceType === s && styles.editChipTextActive]}>
+                        {s === "service" ? "Service" : "Repair"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {/* Service Sub-Type — only when Service selected */}
+              {editForm.serviceType === "service" && (
+                <View style={styles.editField}>
+                  <Text style={styles.editFieldLabel}>Service Sub-Type</Text>
+                  <View style={styles.editChipRow}>
+                    {(["major", "minor", "breakdown", "running"] as const).map((s) => (
+                      <Pressable
+                        key={s}
+                        onPress={() => setEditForm({ ...editForm, serviceSubType: editForm.serviceSubType === s ? "" : s })}
+                        style={[styles.editChip, editForm.serviceSubType === s && styles.editChipActive]}
+                      >
+                        <Text style={[styles.editChipText, editForm.serviceSubType === s && styles.editChipTextActive]}>
+                          {SERVICE_SUB_LABELS[s]}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+              )}
 
               {editMutation.isError && (
                 <Text style={styles.editErrorText}>
@@ -758,106 +986,86 @@ export default function CaseDetailScreen() {
         </View>
       </Modal>
 
+      {/* Image viewer — react-native-image-viewing handles pinch/swipe/zoom */}
+      <ImageViewing
+        images={imageViewerState ? imageViewerState.images.map((m) => ({ uri: m.url })) : []}
+        imageIndex={imageViewerState?.startIndex ?? 0}
+        visible={!!imageViewerState}
+        onRequestClose={() => setImageViewerState(null)}
+        swipeToCloseEnabled
+        doubleTapToZoomEnabled
+        HeaderComponent={({ imageIndex }) => {
+          const img = imageViewerState!.images[imageIndex];
+          return (
+            <View style={styles.viewerHeader}>
+              <Pressable style={styles.viewerHeaderBtn} onPress={() => setImageViewerState(null)} hitSlop={12}>
+                <Feather name="x" size={22} color="#fff" />
+              </Pressable>
+              <Text style={styles.viewerCounter}>{imageIndex + 1} / {imageViewerState!.images.length}</Text>
+              <Pressable
+                style={[styles.viewerHeaderBtn, downloadingImage && styles.disabled]}
+                onPress={() => handleDownloadImage(img)}
+                disabled={downloadingImage}
+                hitSlop={12}
+              >
+                {downloadingImage ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download" size={22} color="#fff" />}
+              </Pressable>
+            </View>
+          );
+        }}
+        FooterComponent={({ imageIndex }) => {
+          const img = imageViewerState!.images[imageIndex];
+          return (
+            <View style={styles.viewerFooter}>
+              {img.isPrimary && (
+                <View style={styles.viewerPrimaryBadge}>
+                  <Feather name="star" size={10} color="#fff" />
+                  <Text style={styles.viewerPrimaryText}>Primary</Text>
+                </View>
+              )}
+              <Text style={styles.viewerFilename} numberOfLines={1}>{img.filename}</Text>
+              <Text style={styles.viewerMeta}>
+                {img.folder === "intake" ? "Intake" : "Repairs"} · {formatDate(img.createdAt)}
+              </Text>
+            </View>
+          );
+        }}
+      />
+
+      {/* Video viewer */}
       <Modal
-        visible={!!viewerState}
+        visible={!!videoViewerItem}
         transparent
         animationType="fade"
         statusBarTranslucent
-        onRequestClose={() => setViewerState(null)}
+        onRequestClose={() => setVideoViewerItem(null)}
       >
-        {viewerState && (() => {
-          const img = viewerState.images[viewerState.currentIndex];
-          const total = viewerState.images.length;
-          const idx = viewerState.currentIndex;
-          const hasPrev = idx > 0;
-          const hasNext = idx < total - 1;
-          return (
-            <View style={styles.viewerBackdrop}>
-              {/* Header */}
-              <View style={styles.viewerHeader}>
-                <Pressable style={styles.viewerHeaderBtn} onPress={() => setViewerState(null)} hitSlop={12}>
-                  <Feather name="x" size={22} color="#fff" />
-                </Pressable>
-                <Text style={styles.viewerCounter}>{idx + 1} / {total}</Text>
-                <Pressable
-                  style={[styles.viewerHeaderBtn, downloadingImage && styles.disabled]}
-                  onPress={() => handleDownloadImage(img)}
-                  disabled={downloadingImage}
-                  hitSlop={12}
-                >
-                  {downloadingImage ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Feather name="download" size={22} color="#fff" />
-                  )}
-                </Pressable>
-              </View>
-
-              {/* Image */}
-              <View style={styles.viewerImageArea}>
-                <PinchGestureHandler
-                  onGestureEvent={(e) => {
-                    const s = Math.max(1, Math.min(scaleBase.current * e.nativeEvent.scale, 5));
-                    scaleAnim.setValue(s);
-                  }}
-                  onHandlerStateChange={(e) => {
-                    if (e.nativeEvent.oldState === State.ACTIVE) {
-                      scaleBase.current = Math.max(1, Math.min(scaleBase.current * e.nativeEvent.scale, 5));
-                      lastScale.current = 1;
-                      scaleAnim.setValue(scaleBase.current);
-                    }
-                  }}
-                >
-                  <Animated.View style={{ flex: 1, transform: [{ scale: scaleAnim }] }}>
-                    <Image
-                      source={{ uri: img.url }}
-                      style={styles.viewerImage}
-                      resizeMode="contain"
-                    />
-                  </Animated.View>
-                </PinchGestureHandler>
-                {hasPrev && (
-                  <Pressable
-                    style={[styles.viewerNavBtn, styles.viewerNavLeft]}
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      setViewerState((v) => v ? { ...v, currentIndex: v.currentIndex - 1 } : v);
-                    }}
-                    hitSlop={8}
-                  >
-                    <Feather name="chevron-left" size={30} color="#fff" />
-                  </Pressable>
-                )}
-                {hasNext && (
-                  <Pressable
-                    style={[styles.viewerNavBtn, styles.viewerNavRight]}
-                    onPress={() => {
-                      Haptics.selectionAsync();
-                      setViewerState((v) => v ? { ...v, currentIndex: v.currentIndex + 1 } : v);
-                    }}
-                    hitSlop={8}
-                  >
-                    <Feather name="chevron-right" size={30} color="#fff" />
-                  </Pressable>
-                )}
-              </View>
-
-              {/* Footer metadata */}
-              <View style={styles.viewerFooter}>
-                {img.isPrimary && (
-                  <View style={styles.viewerPrimaryBadge}>
-                    <Feather name="star" size={10} color="#fff" />
-                    <Text style={styles.viewerPrimaryText}>Primary</Text>
-                  </View>
-                )}
-                <Text style={styles.viewerFilename} numberOfLines={1}>{img.filename}</Text>
-                <Text style={styles.viewerMeta}>
-                  {img.folder === "intake" ? "Intake" : "Repairs"} · {formatDate(img.createdAt)}
-                </Text>
-              </View>
+        {videoViewerItem && (
+          <View style={styles.viewerBackdrop}>
+            <View style={styles.viewerHeader}>
+              <Pressable style={styles.viewerHeaderBtn} onPress={() => setVideoViewerItem(null)} hitSlop={12}>
+                <Feather name="x" size={22} color="#fff" />
+              </Pressable>
+              <Text style={styles.viewerCounter}>{videoViewerItem.filename}</Text>
+              <Pressable
+                style={[styles.viewerHeaderBtn, downloadingImage && styles.disabled]}
+                onPress={() => handleDownloadImage(videoViewerItem)}
+                disabled={downloadingImage}
+                hitSlop={12}
+              >
+                {downloadingImage ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download" size={22} color="#fff" />}
+              </Pressable>
             </View>
-          );
-        })()}
+            <View style={styles.viewerImageArea}>
+              <VideoViewerContent url={videoViewerItem.url} />
+            </View>
+            <View style={styles.viewerFooter}>
+              <Text style={styles.viewerMeta}>
+                {videoViewerItem.folder === "intake" ? "Intake" : "Repairs"} · {formatDate(videoViewerItem.createdAt)}
+              </Text>
+            </View>
+          </View>
+        )}
       </Modal>
 
       <Modal
@@ -959,6 +1167,103 @@ export default function CaseDetailScreen() {
               onPress={() => setWaSendOpen(false)}
               style={styles.sheetCancel}
             >
+              <Text style={styles.sheetCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={transferOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setTransferOpen(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.sheetBackdrop}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Transfer Case</Text>
+            <Text style={styles.transferSubtitle}>
+              Currently: {data?.advisor.name}
+            </Text>
+
+            {advisorsQuery.isLoading ? (
+              <ActivityIndicator color={colors.primary} style={{ marginVertical: 16 }} />
+            ) : (
+              <ScrollView style={styles.advisorPickerList} showsVerticalScrollIndicator={false}>
+                {(advisorsQuery.data ?? [])
+                  .filter((a: UserListItem) => a.id !== data?.advisorId)
+                  .map((advisor: UserListItem) => (
+                    <Pressable
+                      key={advisor.id}
+                      onPress={() => setTransferAdvisorId(advisor.id)}
+                      style={[
+                        styles.advisorPickerRow,
+                        transferAdvisorId === advisor.id && styles.advisorPickerRowActive,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.advisorPickerAvatar,
+                          transferAdvisorId === advisor.id && styles.advisorPickerAvatarActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.advisorPickerAvatarText,
+                            transferAdvisorId === advisor.id && styles.advisorPickerAvatarTextActive,
+                          ]}
+                        >
+                          {advisor.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={styles.advisorPickerInfo}>
+                        <Text style={styles.advisorPickerName}>{advisor.name}</Text>
+                        <Text style={styles.advisorPickerRole}>{advisor.role}</Text>
+                      </View>
+                      {transferAdvisorId === advisor.id && (
+                        <Feather name="check" size={16} color={colors.primary} />
+                      )}
+                    </Pressable>
+                  ))}
+              </ScrollView>
+            )}
+
+            <TextInput
+              value={transferNote}
+              onChangeText={setTransferNote}
+              placeholder="Note (optional)"
+              placeholderTextColor={colors.textMuted}
+              style={styles.noteInput}
+              maxLength={500}
+            />
+
+            {transferMutation.isError && (
+              <Text style={styles.editErrorText}>
+                {transferMutation.error instanceof Error
+                  ? transferMutation.error.message
+                  : "Transfer failed."}
+              </Text>
+            )}
+
+            <Pressable
+              onPress={() => transferMutation.mutate()}
+              disabled={!transferAdvisorId || transferMutation.isPending}
+              style={[
+                styles.saveBtn,
+                (!transferAdvisorId || transferMutation.isPending) && styles.disabled,
+              ]}
+            >
+              {transferMutation.isPending ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.saveText}>Transfer Case</Text>
+              )}
+            </Pressable>
+            <Pressable onPress={() => setTransferOpen(false)} style={styles.sheetCancel}>
               <Text style={styles.sheetCancelText}>Cancel</Text>
             </Pressable>
           </View>
@@ -1318,61 +1623,45 @@ function ImagesGrid({
     if (selectedImages.length === 0) return;
     setBulkAction("share");
     try {
-      // Download all in parallel
-      const settled = await Promise.allSettled(
-        selectedImages.map(async (img) => {
-          const ext = img.url.split("?")[0].split(".").pop() ?? "jpg";
-          const localUri = `${FileSystem.cacheDirectory}wa_${img.id}_${Date.now()}.${ext}`;
-          const { uri } = await FileSystem.downloadAsync(img.url, localUri);
-          return uri;
-        })
-      );
-      const localUris = settled
-        .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
-        .map((r) => r.value);
-
-      if (localUris.length === 0) {
-        Alert.alert("Share failed", "Could not prepare images for sharing.");
+      // Only images for multi-share (WhatsApp requires homogeneous image/* type)
+      const imageItems = selectedImages.filter((img) => img.mediaType !== "video");
+      if (imageItems.length === 0) {
+        Alert.alert("Images only", "Select at least one image to share.");
         return;
       }
 
-      if (Platform.OS === "android") {
-        try {
-          const contentUris = await Promise.all(
-            localUris.map((uri) => FileSystem.getContentUriAsync(uri))
-          );
-          await IntentLauncher.startActivityAsync("android.intent.action.SEND_MULTIPLE", {
-            type: "image/*",
-            extra: { "android.intent.extra.STREAM": contentUris },
-            packageName: "com.whatsapp",
-            flags: 1,
-          });
-        } catch (intentErr: unknown) {
-          // WhatsApp not installed or rejected content URIs (common in Expo Go) — fall back to system share sheet
-          const msg = intentErr instanceof Error ? intentErr.message : "";
-          if (!msg.toLowerCase().includes("cancel")) {
-            const available = await Sharing.isAvailableAsync();
-            if (available) {
-              for (const uri of localUris) {
-                await Sharing.shareAsync(uri, { mimeType: "image/jpeg" });
-              }
-            } else {
-              Alert.alert("Share failed", "WhatsApp not found. Make sure it is installed.");
-            }
-          }
-        }
-      } else {
-        // iOS: system share sheet per image (no multi-file share API on iOS without native module)
-        const available = await Sharing.isAvailableAsync();
-        if (!available) { Alert.alert("Sharing not available on this device."); return; }
-        for (const uri of localUris) {
-          await Sharing.shareAsync(uri, { mimeType: "image/jpeg", UTI: "public.jpeg" });
-        }
+      // Download to stable cache paths
+      const localPaths = await Promise.all(
+        imageItems.map(async (img) => {
+          const dest = `${FileSystem.cacheDirectory}rns_${img.id}.jpg`;
+          await FileSystem.downloadAsync(img.url, dest);
+          return dest;
+        })
+      );
+
+      console.log(localPaths);
+      if (!RNShare) {
+        Alert.alert("Not supported", "Sharing requires a dev/production build.");
+        return;
       }
+      // react-native-share with useInternalStorage copies files into the app's
+      // internal FileProvider directory, granting WhatsApp and WhatsApp Business
+      // proper content:// URI access via ACTION_SEND_MULTIPLE.
+      await RNShare.open({
+        urls: localPaths,
+        type: "image/*",
+        useInternalStorage: true,
+        title: "Share images",
+        failOnCancel: false,
+      });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "";
-      if (!msg.toLowerCase().includes("cancel")) {
-        Alert.alert("Share failed", "Could not share images. Check that WhatsApp is installed.");
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        !msg.toLowerCase().includes("cancel") &&
+        !msg.toLowerCase().includes("user did not share") &&
+        !msg.toLowerCase().includes("dismissed")
+      ) {
+        Alert.alert("Share failed", "Could not share images. Try again.");
       }
     } finally {
       setBulkAction(null);
@@ -1411,17 +1700,17 @@ function ImagesGrid({
     new Promise((resolve) => {
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
-          { options: ["Cancel", "Take Photo", "Choose from Gallery"], cancelButtonIndex: 0 },
+          { options: ["Cancel", "Take Photo / Video", "Choose from Gallery"], cancelButtonIndex: 0 },
           async (idx) => {
             if (idx === 1) {
               const { status } = await ImagePickerLib.requestCameraPermissionsAsync();
               if (status !== "granted") { resolve([]); return; }
-              const r = await ImagePickerLib.launchCameraAsync({ quality: 0.85 });
+              const r = await ImagePickerLib.launchCameraAsync({ quality: 0.85, mediaTypes: ["images", "videos"] });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             } else if (idx === 2) {
               const { status } = await ImagePickerLib.requestMediaLibraryPermissionsAsync();
               if (status !== "granted") { resolve([]); return; }
-              const r = await ImagePickerLib.launchImageLibraryAsync({ quality: 0.85, allowsMultipleSelection: true });
+              const r = await ImagePickerLib.launchImageLibraryAsync({ quality: 0.85, allowsMultipleSelection: true, mediaTypes: ["images", "videos"] });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             } else {
               resolve([]);
@@ -1429,13 +1718,13 @@ function ImagesGrid({
           }
         );
       } else {
-        Alert.alert("Add Photo", "Choose source", [
+        Alert.alert("Add Photo / Video", "Choose source", [
           {
-            text: "Take Photo",
+            text: "Take Photo / Video",
             onPress: async () => {
               const { status } = await ImagePickerLib.requestCameraPermissionsAsync();
               if (status !== "granted") { resolve([]); return; }
-              const r = await ImagePickerLib.launchCameraAsync({ quality: 0.85 });
+              const r = await ImagePickerLib.launchCameraAsync({ quality: 0.85, mediaTypes: ["images", "videos"] });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             },
           },
@@ -1444,7 +1733,7 @@ function ImagesGrid({
             onPress: async () => {
               const { status } = await ImagePickerLib.requestMediaLibraryPermissionsAsync();
               if (status !== "granted") { resolve([]); return; }
-              const r = await ImagePickerLib.launchImageLibraryAsync({ quality: 0.85, allowsMultipleSelection: true });
+              const r = await ImagePickerLib.launchImageLibraryAsync({ quality: 0.85, allowsMultipleSelection: true, mediaTypes: ["images", "videos"] });
               resolve(r.canceled ? [] : r.assets.map((a) => a.uri));
             },
           },
@@ -1453,13 +1742,15 @@ function ImagesGrid({
       }
     });
 
-  const getMimeType = (uri: string): { mime: string; ext: string } => {
+  const getMimeType = (uri: string): { mime: string; ext: string; isVideo: boolean } => {
     const lower = uri.split("?")[0].toLowerCase();
-    if (lower.endsWith(".heic")) return { mime: "image/heic", ext: "heic" };
-    if (lower.endsWith(".heif")) return { mime: "image/heif", ext: "heif" };
-    if (lower.endsWith(".png")) return { mime: "image/png", ext: "png" };
-    if (lower.endsWith(".webp")) return { mime: "image/webp", ext: "webp" };
-    return { mime: "image/jpeg", ext: "jpg" };
+    if (lower.endsWith(".mp4")) return { mime: "video/mp4", ext: "mp4", isVideo: true };
+    if (lower.endsWith(".mov")) return { mime: "video/quicktime", ext: "mov", isVideo: true };
+    if (lower.endsWith(".heic")) return { mime: "image/heic", ext: "heic", isVideo: false };
+    if (lower.endsWith(".heif")) return { mime: "image/heif", ext: "heif", isVideo: false };
+    if (lower.endsWith(".png")) return { mime: "image/png", ext: "png", isVideo: false };
+    if (lower.endsWith(".webp")) return { mime: "image/webp", ext: "webp", isVideo: false };
+    return { mime: "image/jpeg", ext: "jpg", isVideo: false };
   };
 
   const handleAdd = async () => {
@@ -1469,13 +1760,13 @@ function ImagesGrid({
 
     const results = await Promise.allSettled(
       uris.map(async (uri) => {
-        const { mime, ext } = getMimeType(uri);
+        const { mime, ext, isVideo } = getMimeType(uri);
         const filename = `${Array.from({ length: 4 }, () =>
           String.fromCharCode(97 + Math.floor(Math.random() * 26))
         ).join("")}.${ext}`;
         const presigned = await presignImage(caseNumber, { filename, contentType: mime, folder });
         await uploadImageToS3(presigned.uploadUrl, uri, mime);
-        return { key: presigned.key, filename, folder } as ConfirmImageItem;
+        return { key: presigned.key, filename, folder, mediaType: isVideo ? "video" : "image" } as ConfirmImageItem;
       })
     );
 
@@ -1897,12 +2188,30 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
 
-  editDetailsBtn: {
+  shareInternalBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     marginTop: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  shareInternalText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: colors.textSecondary,
+  },
+  editDetailsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 8,
     paddingVertical: 10,
     borderRadius: 10,
     backgroundColor: colors.primaryFaint,
@@ -2116,6 +2425,32 @@ const styles = StyleSheet.create({
   editFieldTextarea: {
     minHeight: 88,
     textAlignVertical: "top",
+  },
+  editChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  editChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.inputBg,
+  },
+  editChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  editChipText: {
+    fontSize: 13,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.textSecondary,
+  },
+  editChipTextActive: {
+    color: "#fff",
+    fontFamily: "PlusJakartaSans_600SemiBold",
   },
   editErrorText: {
     fontSize: 12,
@@ -2383,5 +2718,106 @@ const styles = StyleSheet.create({
     fontFamily: "PlusJakartaSans_600SemiBold",
     fontWeight: "600" as const,
     color: colors.destructive,
+  },
+  transferCaseBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary + "50",
+    backgroundColor: colors.primaryFaint,
+    marginBottom: 10,
+  },
+  transferCaseBtnText: {
+    fontSize: 14,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: colors.primary,
+  },
+  transferSubtitle: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_500Medium",
+    color: colors.textSecondary,
+    marginBottom: 14,
+  },
+  advisorPickerList: {
+    maxHeight: 220,
+    marginBottom: 6,
+  },
+  advisorPickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    marginBottom: 6,
+    backgroundColor: colors.inputBg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  advisorPickerRowActive: {
+    backgroundColor: colors.primaryFaint,
+    borderColor: colors.primary + "60",
+  },
+  advisorPickerAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  advisorPickerAvatarActive: {
+    backgroundColor: colors.primary,
+  },
+  advisorPickerAvatarText: {
+    fontSize: 14,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: colors.textSecondary,
+  },
+  advisorPickerAvatarTextActive: {
+    color: "#fff",
+  },
+  advisorPickerInfo: {
+    flex: 1,
+  },
+  advisorPickerName: {
+    fontSize: 14,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: colors.text,
+  },
+  advisorPickerRole: {
+    fontSize: 11,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: colors.textMuted,
+    textTransform: "capitalize",
+    marginTop: 2,
+  },
+  viewerVideoPlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingHorizontal: 24,
+  },
+  viewerVideoText: {
+    fontSize: 14,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: "rgba(255,255,255,0.85)",
+    textAlign: "center",
+  },
+  viewerVideoHint: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_400Regular",
+    color: "rgba(255,255,255,0.45)",
+    textAlign: "center",
   },
 });

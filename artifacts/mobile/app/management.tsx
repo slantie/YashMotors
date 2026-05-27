@@ -250,7 +250,7 @@ export default function ManagementScreen() {
         showBack
         rightElement={
           <Pressable
-            onPress={() => router.push("/settings")}
+            onPress={() => router.push("/(tabs)/settings")}
             style={styles.iconBtn}
           >
             <Feather name="settings" size={18} color={colors.primary} />
