@@ -2,7 +2,7 @@
   "expo": {
     "name": "Yash Motors",
     "slug": "yashmotors",
-    "version": "1.0.2-beta",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "yashmotors",
