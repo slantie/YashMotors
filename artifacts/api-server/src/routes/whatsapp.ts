@@ -5,8 +5,6 @@ import {
   toJid,
 } from "../lib/whatsapp-connection";
 
-const ADMIN_NUMBER = "8758800101";
-const NANDISH_NUMBER = "9909260701";
 
 const router = Router();
 
@@ -143,11 +141,11 @@ router.post("/whatsapp/create-group", async (req: Request, res: Response) => {
     return;
   }
 
+  const adminNumbers = [process.env.ADMIN_NUMBER_1, process.env.ADMIN_NUMBER_2].filter(Boolean) as string[];
   const participants = [
     toJid(customerPhone),
     toJid(advisorPhone),
-    toJid(ADMIN_NUMBER),
-    toJid(NANDISH_NUMBER),
+    ...adminNumbers.map(toJid),
   ];
 
   let group: Awaited<ReturnType<typeof sock.groupCreate>>;

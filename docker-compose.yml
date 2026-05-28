@@ -64,6 +64,15 @@ services:
       retries: 5
       start_period: 180s
 
+  archive:
+    build:
+      context: .
+      dockerfile: artifacts/archive-ui/Dockerfile
+    restart: unless-stopped
+    env_file: artifacts/archive-ui/.env
+    ports:
+      - "127.0.0.1:3003:3000"
+
 volumes:
   redis_data:
   baileys_auth:

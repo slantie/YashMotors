@@ -1,0 +1,8 @@
+{
+  "buildCommand": "pnpm run build",
+  "installCommand": "pnpm install",
+  "framework": "nextjs",
+  "rewrites": [
+    { "source": "/", "destination": "/archive/login" }
+  ]
+}

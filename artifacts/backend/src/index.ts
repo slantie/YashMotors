@@ -36,6 +36,7 @@ app.use(
   createProxyMiddleware({
     target: env.OCR_URL,
     changeOrigin: true,
+    pathRewrite: (path) => (path === "/" ? "/ocr" : path),
     logger: console,
   })
 );
