@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { cases, caseEvents, caseEventImages, users } from "@/lib/schema";
 import { eq, desc, asc, or, and, ilike, sql } from "drizzle-orm";
 import { presignGet } from "@/lib/s3";
+import { isInternalStatus } from "@/lib/status";
 
 const PAGE_SIZE = 30;
 
@@ -46,7 +47,8 @@ export async function getCases(
           ilike(cases.carModel, `%${q}%`)
         )
       : undefined,
-    status ? sql`${cases.internalStatus} = ${status}` : undefined
+    // Ignore an unknown/invalid status instead of letting Postgres throw on the enum cast.
+    status && isInternalStatus(status) ? eq(cases.internalStatus, status) : undefined
   );
 
   const col = SORT_COLS[sortField] ?? cases.createdAt;

@@ -5,6 +5,7 @@ import {
   type SortField,
   type SortDir,
 } from "@/lib/actions";
+import { INTERNAL_STATUSES } from "@/lib/status";
 import { StatusPill, STATUS_LABELS } from "@/lib/shared";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -205,9 +206,9 @@ export default async function CasesPage({
             className="h-10 rounded-lg border-0 bg-transparent px-3 text-sm text-foreground focus:outline-none focus:ring-0 cursor-pointer min-w-[140px]"
           >
             <option value="">All statuses</option>
-            {Object.entries(STATUS_LABELS).map(([v, l]) => (
+            {INTERNAL_STATUSES.map((v) => (
               <option key={v} value={v}>
-                {l}
+                {STATUS_LABELS[v] ?? v}
               </option>
             ))}
           </select>

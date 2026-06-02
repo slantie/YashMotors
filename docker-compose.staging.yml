@@ -1,0 +1,116 @@
+# Staging stack — runs ALONGSIDE prod on the same box (blue/green flip).
+#
+#   docker compose -f docker-compose.staging.yml -p yashmotors-staging up -d --build
+#
+# The explicit `-p yashmotors-staging` project name isolates containers AND volumes from
+# prod (volumes become yashmotors-staging_redis_data, ..._baileys_auth, etc.) so the two
+# stacks never share Redis, the WhatsApp session, or migration state.
+#
+# Host ports are offset from prod so both stacks bind at once:
+#   backend  4001 (prod 3001)   api-server 9080 (prod 8080)
+#   ocr      9000 (prod 8000)   archive    4003 (prod 3003)
+#
+# nginx flips the public backend upstream between 3001 (prod) and 4001 (staging) — see
+# deploy/STAGING.md + deploy/flip-env.sh. The mobile APK URL never changes.
+#
+# Env files (.env.staging, git-ignored) must point DATABASE_URL at a Neon BRANCH, never
+# prod. Copy from each service's .env.staging.example.
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend-migrate:
+    build:
+      context: .
+      dockerfile: artifacts/backend/Dockerfile
+    restart: "no"
+    env_file: artifacts/backend/.env.staging
+    command: ["node", "./dist/db/migrate.js"]
+
+  backend:
+    build:
+      context: .
+      dockerfile: artifacts/backend/Dockerfile
+    restart: unless-stopped
+    env_file: artifacts/backend/.env.staging
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      WHATSAPP_API_URL: http://api-server:8080
+      WHATSAPP_INTERNAL_SECRET: ${WHATSAPP_INTERNAL_SECRET}
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:4001:3001"
+
+  api-server:
+    build:
+      context: .
+      dockerfile: artifacts/api-server/Dockerfile
+    restart: unless-stopped
+    env_file: artifacts/api-server/.env.staging
+    environment:
+      PORT: "8080"
+      INTERNAL_SECRET: ${WHATSAPP_INTERNAL_SECRET}
+    volumes:
+      - baileys_auth:/app/auth_info_baileys
+    ports:
+      - "127.0.0.1:9080:8080"
+    # NOTE: WhatsApp — this stack has its OWN (empty) baileys_auth volume. A single WA
+    # number cannot host two primary Baileys sessions; link a separate test number here,
+    # or simply don't exercise WA flows in staging. Non-WA features work regardless.
+
+  ocr:
+    build:
+      context: services/ocr
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: services/ocr/.env.staging
+    volumes:
+      - paddleocr_models:/root/.paddleocr
+    ports:
+      - "127.0.0.1:9000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  # Archive is on Vercel (preview deploys cover staging) — gated behind a profile so the
+  # default staging `up` skips it. Run with --profile archive only if you truly need it here.
+  archive:
+    profiles: ["archive"]
+    build:
+      context: .
+      dockerfile: artifacts/archive-ui/Dockerfile
+    restart: unless-stopped
+    env_file: artifacts/archive-ui/.env.staging
+    ports:
+      - "127.0.0.1:4003:3000"
+
+# Observability (Prometheus/Grafana) is intentionally omitted from staging — the prod
+# stack already runs it. Add here on offset ports only if you need staging dashboards.
+
+volumes:
+  redis_data:
+  baileys_auth:
+  paddleocr_models:

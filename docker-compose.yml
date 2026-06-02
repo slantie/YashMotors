@@ -76,7 +76,11 @@ services:
       retries: 5
       start_period: 180s
 
+  # Archive portal runs on Vercel in production, not in this stack. Gated behind a profile
+  # so the default `docker compose up` does NOT build it (the prod box has no archive-ui dir).
+  # Run locally with: docker compose --profile archive up
   archive:
+    profiles: ["archive"]
     build:
       context: .
       dockerfile: artifacts/archive-ui/Dockerfile
