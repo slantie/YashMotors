@@ -14,10 +14,11 @@
       "android": { "buildType": "apk" },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com",
-        "EXPO_PUBLIC_ADMIN_PHONE": "8758800101",
-        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 87588 00101",
+        "EXPO_PUBLIC_ADMIN_PHONE": "9879204701",
+        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 98792 04701",
         "EXPO_PUBLIC_NANDISH_PHONE": "9909260701",
-        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701"
+        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://17561aa0863d737bd1428e43dbff3ba8@o4511493823463424.ingest.de.sentry.io/4511493830869072"
       }
     },
     "preview": {
@@ -30,10 +31,11 @@
       "android": { "buildType": "apk" },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com",
-        "EXPO_PUBLIC_ADMIN_PHONE": "8758800101",
-        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 87588 00101",
+        "EXPO_PUBLIC_ADMIN_PHONE": "9879204701",
+        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 98792 04701",
         "EXPO_PUBLIC_NANDISH_PHONE": "9909260701",
-        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701"
+        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://17561aa0863d737bd1428e43dbff3ba8@o4511493823463424.ingest.de.sentry.io/4511493830869072"
       }
     },
     "production": {
@@ -41,10 +43,11 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com",
-        "EXPO_PUBLIC_ADMIN_PHONE": "8758800101",
-        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 87588 00101",
+        "EXPO_PUBLIC_ADMIN_PHONE": "9879204701",
+        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 98792 04701",
         "EXPO_PUBLIC_NANDISH_PHONE": "9909260701",
-        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701"
+        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://17561aa0863d737bd1428e43dbff3ba8@o4511493823463424.ingest.de.sentry.io/4511493830869072"
       }
     }
   },
