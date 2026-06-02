@@ -15,6 +15,12 @@ const schema = z.object({
   WHATSAPP_API_URL: z.string().url().default("http://localhost:8080"),
   WHATSAPP_INTERNAL_SECRET: z.string().optional(),
   OCR_URL: z.string().url().default("http://ocr:8000"),
+  // Comma-separated allowlist of browser origins. Empty = no cross-origin access
+  // (native mobile app is unaffected; it is not subject to CORS).
+  CORS_ORIGINS: z.string().default(""),
+  // Observability. Sentry is a no-op when the DSN is unset (safe for local dev).
+  SENTRY_DSN: z.string().optional(),
+  LOG_LEVEL: z.string().default("info"),
 });
 
 const parsed = schema.safeParse(process.env);

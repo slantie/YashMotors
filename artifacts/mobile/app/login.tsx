@@ -17,9 +17,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
 import { AuthUser, useAuthStore } from "@/store/useAuthStore";
 
-function routeForUser(user: AuthUser): string {
-  return "/(tabs)";
-}
+// All roles enter through the tab navigator; the Home tab ((tabs)/index) dispatches to the
+// correct per-role home screen (advisor / technician / dashboard). Kept as a single named
+// entry point so any future role-specific landing route lives in one place.
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -51,9 +51,9 @@ export default function LoginScreen() {
   const handleSubmit = async () => {
     if (!canSubmit) return;
     try {
-      const user = await login(phone, pin);
+      await login(phone, pin);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace(routeForUser(user) as never);
+      router.replace("/(tabs)");
     } catch (err) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setPin("");
@@ -126,7 +126,9 @@ export default function LoginScreen() {
               <Pressable
                 onPress={() => setPinVisible((v) => !v)}
                 style={styles.eyeBtn}
-                hitSlop={8}
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel={pinVisible ? "Hide PIN" : "Show PIN"}
               >
                 <Feather
                   name={pinVisible ? "eye-off" : "eye"}

@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from PIL import Image, UnidentifiedImageError
 from paddleocr import PaddleOCR
 
@@ -196,10 +197,12 @@ async def ocr_plate(image: UploadFile = File(...)):
     except Exception:
         raise HTTPException(status_code=400, detail="Cannot decode image")
 
-    arr = preprocess(img)
+    arr = await run_in_threadpool(preprocess, img)
     logger.info("  Preprocessed shape: %s", arr.shape[:2])
 
-    results = reader.ocr(arr, cls=True)  # type: ignore[union-attr]
+    # Run blocking PaddleOCR inference off the event loop so concurrent requests
+    # (and /health) are not stalled by the GIL-bound model call.
+    results = await run_in_threadpool(reader.ocr, arr, cls=True)  # type: ignore[union-attr]
 
     plate = ""
     plate_conf: float | None = None
@@ -263,7 +266,7 @@ async def ocr_plate(image: UploadFile = File(...)):
     if not plate:
         logger.info("  PaddleOCR found no plate — trying Textract fallback")
         try:
-            tx_plate, tx_conf = textract_extract_plate(data)
+            tx_plate, tx_conf = await run_in_threadpool(textract_extract_plate, data)
             if tx_plate:
                 plate = tx_plate
                 plate_conf = tx_conf

@@ -1,6 +1,7 @@
 import { eq, inArray, or, and } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { notifications, users } from "../db/schema.js";
+import { sendPush, sendPushToUser, type PushMessage } from "./push.js";
 
 // ── types ──────────────────────────────────────────────────────────────────────
 
@@ -13,57 +14,8 @@ export interface NotificationPayload {
   data?: Record<string, unknown>;
 }
 
-// ── push ───────────────────────────────────────────────────────────────────────
-
-const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
-
-async function sendExpoPush(
-  token: string,
-  title: string,
-  body: string,
-  data: Record<string, unknown> = {}
-): Promise<void> {
-  const res = await fetch(EXPO_PUSH_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify([{ to: token, title, body, sound: "default", data }]),
-  });
-
-  const result = (await res.json()) as {
-    data: Array<{ status: string; details?: { error?: string } }>;
-  };
-
-  const ticket = result.data?.[0];
-  if (ticket?.status === "error" && ticket.details?.error === "DeviceNotRegistered") {
-    // Token is stale — clear it so we don't waste future calls
-    await db
-      .update(users)
-      .set({ pushToken: null })
-      .where(eq(users.pushToken, token));
-  }
-}
-
-async function pushForUser(
-  userId: number,
-  title: string,
-  body: string,
-  data: Record<string, unknown>
-): Promise<void> {
-  try {
-    const [user] = await db
-      .select({ pushToken: users.pushToken })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    if (user?.pushToken) {
-      await sendExpoPush(user.pushToken, title, body, data);
-    }
-  } catch (err) {
-    console.error("[Push] Failed for user", userId, err);
-  }
-}
-
 // ── public API ─────────────────────────────────────────────────────────────────
+// Delivery (chunking, ticket/receipt handling, dead-token cleanup) lives in ./push.ts.
 
 /** Create one notification and fire push in the background. */
 export async function createNotification(payload: NotificationPayload): Promise<void> {
@@ -75,10 +27,10 @@ export async function createNotification(payload: NotificationPayload): Promise<
     body: payload.body,
   });
 
-  void pushForUser(payload.userId, payload.title, payload.body, payload.data ?? {});
+  void sendPushToUser(payload.userId, payload.title, payload.body, payload.data ?? {});
 }
 
-/** Create notifications for multiple users in parallel. */
+/** Create notifications for multiple users, then push in one batched Expo send. */
 export async function createNotifications(payloads: NotificationPayload[]): Promise<void> {
   if (payloads.length === 0) return;
 
@@ -92,10 +44,22 @@ export async function createNotifications(payloads: NotificationPayload[]): Prom
     }))
   );
 
-  // Fire push per user in parallel — non-blocking
-  void Promise.all(
-    payloads.map((p) => pushForUser(p.userId, p.title, p.body, p.data ?? {}))
-  );
+  // Resolve all recipient tokens in one query, then a single (chunked) batched send.
+  void (async () => {
+    const userIds = [...new Set(payloads.map((p) => p.userId))];
+    const rows = await db
+      .select({ id: users.id, pushToken: users.pushToken })
+      .from(users)
+      .where(inArray(users.id, userIds));
+
+    const tokenById = new Map(rows.map((r) => [r.id, r.pushToken]));
+    const messages: PushMessage[] = [];
+    for (const p of payloads) {
+      const token = tokenById.get(p.userId);
+      if (token) messages.push({ to: token, title: p.title, body: p.body, data: p.data ?? {} });
+    }
+    await sendPush(messages);
+  })();
 }
 
 /** Fetch IDs of all active admins and superadmins (excludes the actor). */

@@ -15,9 +15,9 @@ export async function middleware(req: NextRequest) {
   if (!token) return NextResponse.redirect(new URL("/archive/login", req.url));
 
   try {
-    const pw = process.env.ARCHIVE_PASSWORD;
-    if (!pw) throw new Error("no password");
-    await jwtVerify(token, new TextEncoder().encode(pw));
+    const key = process.env.ARCHIVE_JWT_SECRET;
+    if (!key) throw new Error("ARCHIVE_JWT_SECRET not set");
+    await jwtVerify(token, new TextEncoder().encode(key));
     return NextResponse.next();
   } catch {
     const res = NextResponse.redirect(new URL("/archive/login", req.url));

@@ -1,11 +1,12 @@
 import { Router, type Request, type Response } from "express";
-import { eq, desc, or, ne, and, inArray, isNull, gt } from "drizzle-orm";
+import { eq, desc, or, ne, and, inArray, isNull, gt, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import { cases, users, caseEvents, notifications, caseEventImages } from "../db/schema.js";
 import { generateCaseNumber } from "../lib/caseNumber.js";
 import { waQueue } from "../lib/queue.js";
-import { presignGet } from "../lib/s3.js";
+import { presignGetCached } from "../lib/s3.js";
+import { sendPushToUser } from "../lib/push.js";
 import {
   requireAuth,
   requireRole,
@@ -112,7 +113,7 @@ async function attachPrimaryImages<T extends { id: number }>(
   const urlMap = new Map<string, string>();
   await Promise.all(
     uniqueKeys.map(async (key) => {
-      try { urlMap.set(key, await presignGet(key)); } catch { /* skip */ }
+      try { urlMap.set(key, await presignGetCached(key)); } catch { /* skip */ }
     })
   );
 
@@ -124,53 +125,70 @@ async function attachPrimaryImages<T extends { id: number }>(
 }
 
 // ── GET /cases ─────────────────────────────────────────────────────────────────
+// Pagination is opt-in and backward-compatible: with no `limit` query param the full
+// (role-scoped) list is returned as before. When `limit` is provided, the response is
+// the page slice and a total count is exposed via the `X-Total-Count` header so clients
+// can drive offset pagination (MEDIUM-002 / MEDIUM-033).
+
+const MAX_LIMIT = 100;
+
+function parsePagination(req: Request): { limit?: number; offset: number } {
+  const rawLimit = Number(req.query.limit);
+  const rawOffset = Number(req.query.offset);
+  const limit =
+    Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.min(Math.floor(rawLimit), MAX_LIMIT)
+      : undefined;
+  const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0;
+  return { limit, offset };
+}
 
 router.get("/", async (req: Request, res: Response): Promise<void> => {
   const { role, userId } = (req as AuthRequest).user;
+  const { limit, offset } = parsePagination(req);
+
+  // Build the role-scoped WHERE once, reuse for both the page query and the count.
+  let where: SQL | undefined;
+  let order: SQL = desc(cases.createdAt);
 
   if (role === "superadmin" || role === "admin") {
-    const rows = await db
-      .select(caseListWithAdvisor)
-      .from(cases)
-      .leftJoin(users, eq(cases.advisorId, users.id))
-      .where(isNull(cases.deletedAt))
-      .orderBy(desc(cases.createdAt));
-    res.json(await attachPrimaryImages(rows));
-    return;
-  }
-
-  if (role === "advisor") {
-    const rows = await db
-      .select(caseListWithAdvisor)
-      .from(cases)
-      .leftJoin(users, eq(cases.advisorId, users.id))
-      .where(and(eq(cases.advisorId, userId), isNull(cases.deletedAt)))
-      .orderBy(desc(cases.createdAt));
-    res.json(await attachPrimaryImages(rows));
-    return;
-  }
-
-  if (role === "technician") {
+    where = isNull(cases.deletedAt);
+  } else if (role === "advisor") {
+    where = and(eq(cases.advisorId, userId), isNull(cases.deletedAt));
+  } else if (role === "technician") {
     const includeAll = req.query.history === "1";
-    const rows = await db
-      .select(caseListWithAdvisor)
-      .from(cases)
-      .leftJoin(users, eq(cases.advisorId, users.id))
-      .where(
-        includeAll
-          ? isNull(cases.deletedAt)
-          : and(
-              isNull(cases.deletedAt),
-              ne(cases.internalStatus, "delivered"),
-              ne(cases.internalStatus, "cancelled")
-            )
-      )
-      .orderBy(desc(cases.updatedAt));
-    res.json(await attachPrimaryImages(rows));
+    where = includeAll
+      ? isNull(cases.deletedAt)
+      : and(
+          isNull(cases.deletedAt),
+          ne(cases.internalStatus, "delivered"),
+          ne(cases.internalStatus, "cancelled")
+        );
+    order = desc(cases.updatedAt);
+  } else {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
-  res.status(403).json({ error: "Forbidden" });
+  const baseQuery = db
+    .select(caseListWithAdvisor)
+    .from(cases)
+    .leftJoin(users, eq(cases.advisorId, users.id))
+    .where(where)
+    .orderBy(order);
+
+  if (limit === undefined) {
+    res.json(await attachPrimaryImages(await baseQuery));
+    return;
+  }
+
+  const [rows, [{ total }]] = await Promise.all([
+    baseQuery.limit(limit).offset(offset),
+    db.select({ total: sql<number>`count(*)::int` }).from(cases).where(where),
+  ]);
+
+  res.setHeader("X-Total-Count", String(total));
+  res.json(await attachPrimaryImages(rows));
 });
 
 // ── POST /cases ────────────────────────────────────────────────────────────────
@@ -446,30 +464,12 @@ router.post(
 
     res.json({ success: true, notificationId: notif.id });
 
-    // Fire push token lookup + send after response is flushed
-    (async () => {
+    // Push after the response is flushed. sendPushToUser resolves the token, handles
+    // ticket/receipt errors, and clears dead tokens (MEDIUM-004).
+    void (async () => {
       try {
-        const [advisor] = await db
-          .select({ pushToken: users.pushToken })
-          .from(users)
-          .where(eq(users.id, c.advisorId))
-          .limit(1);
-
-        if (!advisor?.pushToken) return;
-
-        const r = await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify([{
-            to: advisor.pushToken,
-            title,
-            body,
-            data: { caseNumber: c.caseNumber },
-            sound: "default",
-          }]),
-        });
-        const d = await r.json().catch(() => null) as { data?: Array<{ status?: string }> } | null;
-        if (d?.data?.[0]?.status === "ok") {
+        const accepted = await sendPushToUser(c.advisorId, title, body, { caseNumber: c.caseNumber });
+        if (accepted) {
           await db.update(notifications).set({ pushSent: true }).where(eq(notifications.id, notif.id));
         }
       } catch (err) {
@@ -546,28 +546,14 @@ router.put(
 
     (async () => {
       try {
-        const [advisor] = await db
-          .select({ pushToken: users.pushToken })
-          .from(users)
-          .where(eq(users.id, parsed.data.targetAdvisorId))
-          .limit(1);
-
-        if (advisor?.pushToken) {
-          const r = await fetch("https://exp.host/--/api/v2/push/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify([{
-              to: advisor.pushToken,
-              title,
-              body,
-              data: { caseNumber: c.caseNumber },
-              sound: "default",
-            }]),
-          });
-          const d = await r.json().catch(() => null) as { data?: Array<{ status?: string }> } | null;
-          if (d?.data?.[0]?.status === "ok") {
-            await db.update(notifications).set({ pushSent: true }).where(eq(notifications.id, notif.id));
-          }
+        const accepted = await sendPushToUser(
+          parsed.data.targetAdvisorId,
+          title,
+          body,
+          { caseNumber: c.caseNumber }
+        );
+        if (accepted) {
+          await db.update(notifications).set({ pushSent: true }).where(eq(notifications.id, notif.id));
         }
 
         if (c.whatsappGroupId && targetAdvisor.phone) {

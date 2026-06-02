@@ -86,11 +86,13 @@ export const useIntakeStore = create<IntakeStore>()(
         }),
     }),
     {
-      name: "Yash Motors App-intake-v1",
+      name: "YMApp-intake-v1",
       storage: createJSONStorage(() => AsyncStorage),
-      // Don't persist selectedSharingImages — it's transient
+      // Persist only non-PII session markers. formData holds customer name, contact
+      // number, and local image URIs — never write that to plaintext AsyncStorage
+      // (DPDP/GDPR exposure on a lost/USB-debugged device), and the image URIs go stale
+      // when the Expo cache clears, causing silent upload failures on restart.
       partialize: (state) => ({
-        formData: state.formData,
         vehicleNumber: state.vehicleNumber,
         createdCaseNumber: state.createdCaseNumber,
       }),

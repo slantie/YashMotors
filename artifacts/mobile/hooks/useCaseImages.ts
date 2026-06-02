@@ -7,7 +7,8 @@ export function useCaseImages(caseNumber: string, folder: string) {
     queryKey: ["images", caseNumber, folder],
     queryFn: () => fetchImages(caseNumber, folder),
     enabled: !!caseNumber,
-    staleTime: 0,
+    // 30s keeps Intake/Repair tab switches instant (no flicker) while staying fresh.
+    staleTime: 30_000,
     refetchOnWindowFocus: true,
   });
 }

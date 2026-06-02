@@ -9,6 +9,8 @@ import {
   presignGet,
   deleteS3Object,
   isAllowedMediaType,
+  maxBytesForContentType,
+  s3ObjectExists,
 } from "../lib/s3.js";
 import { requireAuth, type AuthRequest } from "../middleware/requireAuth.js";
 
@@ -33,9 +35,10 @@ function canAccessCase(role: string, advisorId: number, userId: number): boolean
 // Returns a presigned S3 PUT URL. Client uploads directly to S3, then calls /confirm.
 
 const presignSchema = z.object({
-  filename:    z.string().min(1),
-  contentType: z.string().min(1),
-  folder:      z.enum(["intake", "repairs"]).default("repairs"),
+  filename:      z.string().min(1),
+  contentType:   z.string().min(1),
+  folder:        z.enum(["intake", "repairs"]).default("repairs"),
+  contentLength: z.number().int().positive(),
 });
 
 router.post(
@@ -50,6 +53,14 @@ router.post(
 
     if (!isAllowedMediaType(parsed.data.contentType)) {
       res.status(400).json({ error: "Unsupported content type. Allowed: jpeg, png, heic, heif, webp, mp4, quicktime, avi, 3gpp" });
+      return;
+    }
+
+    const maxBytes = maxBytesForContentType(parsed.data.contentType);
+    if (parsed.data.contentLength > maxBytes) {
+      res.status(413).json({
+        error: `File too large. Max ${Math.round(maxBytes / (1024 * 1024))} MB for this type.`,
+      });
       return;
     }
 
@@ -96,7 +107,6 @@ router.post(
   "/:caseNumber/images/confirm",
   async (req: Request, res: Response): Promise<void> => {
     const { role, userId } = (req as AuthRequest).user;
-    console.log(`[confirm] caseNumber=${req.params.caseNumber} userId=${userId} body=`, JSON.stringify(req.body));
     const parsed = confirmSchema.safeParse(req.body);
     if (!parsed.success) {
       console.log(`[confirm] validation failed`, parsed.error.flatten().fieldErrors);
@@ -117,6 +127,29 @@ router.post(
     if (role === "technician" && images.some((img) => img.folder === "intake")) {
       console.log(`[confirm] technicians cannot upload to intake`);
       res.status(403).json({ error: "Technicians can only upload to the repairs folder." }); return;
+    }
+
+    // HIGH-003: never trust the client-supplied key. It must live under THIS case's
+    // prefix and claimed folder, or a client could attach another case's media (IDOR /
+    // cross-case contamination). makeS3Key builds `.../<caseNumber>/<folder>/<file>`.
+    const caseNumber = String(req.params.caseNumber);
+    const badKey = images.find(
+      (img) => !img.key.includes(`/${caseNumber}/${img.folder}/`)
+    );
+    if (badKey) {
+      console.log(`[confirm] rejected key not under case prefix: ${badKey.key}`);
+      res.status(400).json({ error: "An image key does not belong to this case." });
+      return;
+    }
+
+    // Verify each object actually exists in S3 — catches failed/never-uploaded keys so we
+    // don't store dangling pointers in the audit timeline.
+    const existence = await Promise.all(images.map((img) => s3ObjectExists(img.key)));
+    const missingIdx = existence.findIndex((ok) => !ok);
+    if (missingIdx !== -1) {
+      console.log(`[confirm] object missing in S3: ${images[missingIdx].key}`);
+      res.status(409).json({ error: "One or more uploads were not found in storage. Retry the upload." });
+      return;
     }
 
     // Run clear+insert atomically to prevent concurrent uploads leaving multiple primaries

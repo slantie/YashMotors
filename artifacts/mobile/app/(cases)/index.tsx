@@ -66,7 +66,7 @@ export default function CasesScreen() {
 
   const casesQuery = useQuery({
     queryKey: ["cases"],
-    queryFn: fetchCases,
+    queryFn: () => fetchCases(),
   });
 
   const visibleCases = (() => {
@@ -152,6 +152,9 @@ export default function CasesScreen() {
             <Pressable
               onPress={() => router.push("/intake")}
               style={styles.headerBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Create new case"
+              hitSlop={8}
             >
               <Feather name="plus" size={19} color={colors.primary} />
             </Pressable>

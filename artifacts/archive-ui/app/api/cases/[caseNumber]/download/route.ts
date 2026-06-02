@@ -14,9 +14,9 @@ async function isAuthed(): Promise<boolean> {
   const token = jar.get("archive_session")?.value;
   if (!token) return false;
   try {
-    const pw = process.env.ARCHIVE_PASSWORD;
-    if (!pw) return false;
-    await jwtVerify(token, new TextEncoder().encode(pw));
+    const key = process.env.ARCHIVE_JWT_SECRET;
+    if (!key) return false;
+    await jwtVerify(token, new TextEncoder().encode(key));
     return true;
   } catch {
     return false;

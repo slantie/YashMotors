@@ -19,4 +19,6 @@ RUN pip install --no-cache-dir --retries 5 --timeout 180 "boto3>=1.34.0"
 COPY main.py .
 
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# WEB_CONCURRENCY workers, each loading its own PaddleOCR model — size to container memory
+# (default 1). Shell form so the env var expands at runtime.
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-1}"]

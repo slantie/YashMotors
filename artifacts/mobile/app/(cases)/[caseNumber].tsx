@@ -64,6 +64,7 @@ import {
   editCase,
   presignImage,
   uploadImageToS3,
+  getUploadSize,
   type CaseEventImage,
   type ConfirmImageItem,
 } from "@/services/caseEvents";
@@ -659,6 +660,21 @@ export default function CaseDetailScreen() {
                     </Text>
                   </Pressable>
                 </View>
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/image-sharing",
+                      params: { caseNumber, vehicleNumber: data.vehicleNumber },
+                    })
+                  }
+                  style={styles.sharePhotosBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share photos to WhatsApp"
+                  hitSlop={6}
+                >
+                  <Feather name="share-2" size={14} color={colors.whatsapp} />
+                  <Text style={styles.sharePhotosText}>Share to WhatsApp</Text>
+                </Pressable>
                 <ImagesGrid
                   caseNumber={caseNumber}
                   folder={imageFolder}
@@ -2292,10 +2308,12 @@ function ImagesGrid({
         const filename = `${Array.from({ length: 4 }, () =>
           String.fromCharCode(97 + Math.floor(Math.random() * 26)),
         ).join("")}.${ext}`;
+        const contentLength = await getUploadSize(uri);
         const presigned = await presignImage(caseNumber, {
           filename,
           contentType: mime,
           folder,
+          contentLength,
         });
         await uploadImageToS3(presigned.uploadUrl, uri, mime);
         return {
@@ -2826,6 +2844,23 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceElevated,
     borderRadius: 10,
     padding: 3,
+  },
+  sharePhotosBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-end",
+    gap: 6,
+    marginBottom: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: colors.whatsappFaint,
+  },
+  sharePhotosText: {
+    fontSize: 12,
+    fontFamily: "PlusJakartaSans_600SemiBold",
+    fontWeight: "600" as const,
+    color: colors.whatsappDark,
   },
   tab: {
     flex: 1,

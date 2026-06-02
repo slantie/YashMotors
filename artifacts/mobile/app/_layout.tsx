@@ -5,7 +5,10 @@ import {
   PlusJakartaSans_700Bold,
   useFonts,
 } from "@expo-google-fonts/plus-jakarta-sans";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Notifications from "expo-notifications";
 import { router, Stack, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -28,6 +31,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import colors from "@/constants/colors";
 import { useAuthStore } from "@/store/useAuthStore";
+import { Sentry, reportError } from "@/lib/sentry";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -56,7 +60,23 @@ async function registerPushToken(accessToken: string) {
 }
 
 
-const queryClient = new QueryClient();
+// Tuned for a workshop floor on intermittent mobile data: serve cached data first, keep
+// it long enough to avoid spinners on every app switch, and back off retries gently.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000,
+      gcTime: 30 * 60 * 1000,
+      retry: 2,
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
+      networkMode: "offlineFirst",
+    },
+  },
+});
+
+// Persist the cache to AsyncStorage so a relaunch shows last-known data instantly instead
+// of blank/loading screens.
+const asyncPersister = createAsyncStoragePersister({ storage: AsyncStorage });
 
 function RootLayoutNav() {
   const segments = useSegments();
@@ -125,7 +145,7 @@ function RootLayoutNav() {
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -147,16 +167,22 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
+      <ErrorBoundary onError={(error) => reportError(error)}>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{ persister: asyncPersister, maxAge: 24 * 60 * 60 * 1000 }}
+        >
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
               <StatusBar style="dark" backgroundColor={colors.background} />
               <RootLayoutNav />
             </KeyboardProvider>
           </GestureHandlerRootView>
-        </QueryClientProvider>
+        </PersistQueryClientProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
+
+// Sentry.wrap is a passthrough when Sentry is not initialized (no DSN).
+export default Sentry.wrap(RootLayout);

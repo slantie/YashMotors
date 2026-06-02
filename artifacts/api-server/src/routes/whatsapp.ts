@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import { timingSafeEqual } from "crypto";
 import {
   getSocket,
   isWhatsAppConnected,
@@ -9,12 +10,33 @@ import {
 const router = Router();
 
 // ── Internal secret guard ──────────────────────────────────────────────────────
-// All routes on this router require x-internal-secret header when configured.
-// Set INTERNAL_SECRET env var on both this service and the backend caller.
+// All routes on this router require the x-internal-secret header. FAIL CLOSED: if the
+// secret is unset in production the service refuses to start, and any request missing or
+// mismatching the header is rejected. Set INTERNAL_SECRET (== backend's
+// WHATSAPP_INTERNAL_SECRET) on both this service and the backend caller.
+
+// Accept either name: docker-compose injects INTERNAL_SECRET (from WHATSAPP_INTERNAL_SECRET),
+// while local .env files use WHATSAPP_INTERNAL_SECRET directly. Both must equal the
+// backend caller's WHATSAPP_INTERNAL_SECRET.
+function internalSecret(): string | undefined {
+  return process.env.INTERNAL_SECRET ?? process.env.WHATSAPP_INTERNAL_SECRET;
+}
+
+if (!internalSecret() && process.env.NODE_ENV === "production") {
+  throw new Error("INTERNAL_SECRET (or WHATSAPP_INTERNAL_SECRET) is required in production");
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
 
 function requireInternalSecret(req: Request, res: Response, next: NextFunction): void {
-  const secret = process.env.INTERNAL_SECRET;
-  if (secret && req.headers["x-internal-secret"] !== secret) {
+  const secret = internalSecret();
+  const provided = req.headers["x-internal-secret"];
+  if (!secret || typeof provided !== "string" || !constantTimeEqual(provided, secret)) {
     res.status(401).json({ success: false, error: "Unauthorized" });
     return;
   }

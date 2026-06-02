@@ -12,6 +12,11 @@ vi.mock("../../db/client.js", () => ({ db: mockDb }));
 vi.mock("../../lib/caseNumber.js", () => ({
   generateCaseNumber: vi.fn().mockResolvedValue("YM-250525-001"),
 }));
+// Mock the WhatsApp queue so the DELETE handler's job drain (waQueue.getJobs) doesn't
+// block on a live Redis — keeps the suite deterministic in CI without a Redis service.
+vi.mock("../../lib/queue.js", () => ({
+  waQueue: { getJobs: vi.fn().mockResolvedValue([]), add: vi.fn().mockResolvedValue(undefined) },
+}));
 
 import app from "../../test/app.js";
 
@@ -338,6 +343,7 @@ describe("POST /cases/:caseNumber/notify-advisor", () => {
   it("200 technician creates notification", async () => {
     const tok = await technicianToken();
     queueDb([CASE]);                     // findCase
+    queueDb([]);                         // cooldown check: no recent notification
     queueDb([{ id: 50 }]);               // insert caseEvent returning
     queueDb([{ id: 77 }]);               // insert notification returning
 

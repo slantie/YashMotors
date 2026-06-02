@@ -12,7 +12,13 @@
       "developmentClient": true,
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com",
+        "EXPO_PUBLIC_ADMIN_PHONE": "8758800101",
+        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 87588 00101",
+        "EXPO_PUBLIC_NANDISH_PHONE": "9909260701",
+        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701"
+      }
     },
     "preview": {
       "extends": "base",
@@ -22,12 +28,24 @@
       "extends": "base",
       "distribution": "internal",
       "android": { "buildType": "apk" },
-      "env": { "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com",
+        "EXPO_PUBLIC_ADMIN_PHONE": "8758800101",
+        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 87588 00101",
+        "EXPO_PUBLIC_NANDISH_PHONE": "9909260701",
+        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701"
+      }
     },
     "production": {
       "extends": "base",
       "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://yashmotorsbackend.mooo.com",
+        "EXPO_PUBLIC_ADMIN_PHONE": "8758800101",
+        "EXPO_PUBLIC_ADMIN_DISPLAY": "+91 87588 00101",
+        "EXPO_PUBLIC_NANDISH_PHONE": "9909260701",
+        "EXPO_PUBLIC_NANDISH_DISPLAY": "+91 99092 60701"
+      }
     }
   },
   "submit": {

@@ -3,10 +3,12 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
 import { env } from "../env.js";
+import { redis } from "./redis.js";
 
 export const s3 = new S3Client({
   region: env.S3_REGION,
@@ -31,6 +33,16 @@ const ALLOWED_MEDIA_TYPES = new Set([
 
 export function isAllowedMediaType(contentType: string): boolean {
   return ALLOWED_MEDIA_TYPES.has(contentType.toLowerCase());
+}
+
+/** Max upload sizes enforced server-side at presign time (defense against cost/abuse). */
+export const MAX_IMAGE_BYTES = 15 * 1024 * 1024; // 15 MB
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024; // 100 MB
+
+export function maxBytesForContentType(contentType: string): number {
+  return contentType.toLowerCase().startsWith("video/")
+    ? MAX_VIDEO_BYTES
+    : MAX_IMAGE_BYTES;
 }
 
 /** @deprecated use isAllowedMediaType */
@@ -66,8 +78,40 @@ export async function presignGet(key: string): Promise<string> {
   );
 }
 
+// Presigned GET URLs are valid 15 min; cache them in Redis for 10 min so the
+// remaining lifetime is always ≥5 min. This collapses the per-row HMAC signing
+// in list endpoints (MEDIUM-002) into a single sign per key per 10 min window.
+const PRESIGN_CACHE_TTL = 600; // seconds
+const presignCacheKey = (key: string) => `presign:get:${key}`;
+
+/** Cached presigned GET — falls back to a fresh signing if Redis is unavailable. */
+export async function presignGetCached(key: string): Promise<string> {
+  try {
+    const hit = await redis.get(presignCacheKey(key));
+    if (hit) return hit;
+  } catch { /* redis down — sign fresh below */ }
+
+  const url = await presignGet(key);
+
+  try {
+    await redis.set(presignCacheKey(key), url, "EX", PRESIGN_CACHE_TTL);
+  } catch { /* non-fatal: caching is best-effort */ }
+
+  return url;
+}
+
 export async function deleteS3Object(key: string): Promise<void> {
   await s3.send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+}
+
+/** Returns true if an object exists at the key (used to verify a client-claimed upload). */
+export async function s3ObjectExists(key: string): Promise<boolean> {
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Legacy helpers kept for any existing callers

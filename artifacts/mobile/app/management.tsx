@@ -105,7 +105,7 @@ export default function ManagementScreen() {
   );
   const [iosTempDate, setIosTempDate] = useState(new Date());
 
-  const casesQuery = useQuery({ queryKey: ["cases"], queryFn: fetchCases });
+  const casesQuery = useQuery({ queryKey: ["cases"], queryFn: () => fetchCases() });
   const all = casesQuery.data ?? [];
 
   const openDatePicker = (which: "from" | "to") => {

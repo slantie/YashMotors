@@ -284,7 +284,9 @@ export function AdditionalImagesPicker({
               <Pressable
                 onPress={() => handleRemove(idx)}
                 style={gridStyles.remove}
-                hitSlop={4}
+                hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+                accessibilityRole="button"
+                accessibilityLabel="Remove image"
               >
                 <Feather name="x" size={12} color="#fff" />
               </Pressable>

@@ -215,31 +215,47 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   refreshAccessToken: async () => {
-    const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
-    if (!refreshToken) return null;
+    // Deduplicate concurrent refreshes. When multiple in-flight requests get a 401 at
+    // once (common on foreground after the 15-min access token expires), they must share
+    // ONE /auth/refresh call. Otherwise the first rotates the refresh token and the rest
+    // present a now-invalid token, get 401, and eject a legitimately logged-in user.
+    if (inFlightRefresh) return inFlightRefresh;
 
-    try {
-      const response = await fetch(apiUrl("/auth/refresh"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
-      });
-      const data = await parseAuthResponse(response);
-      const user = data.user ?? userFromToken(data.accessToken);
+    inFlightRefresh = (async () => {
+      const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+      if (!refreshToken) return null;
 
-      await storeTokens(data.accessToken, data.refreshToken);
-      set({
-        accessToken: data.accessToken,
-        user: user ?? get().user,
-      });
-      return data.accessToken;
-    } catch {
-      await clearTokens();
-      set({ user: null, accessToken: null });
-      return null;
-    }
+      try {
+        const response = await fetch(apiUrl("/auth/refresh"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
+        const data = await parseAuthResponse(response);
+        const user = data.user ?? userFromToken(data.accessToken);
+
+        await storeTokens(data.accessToken, data.refreshToken);
+        set({
+          accessToken: data.accessToken,
+          user: user ?? get().user,
+        });
+        return data.accessToken;
+      } catch {
+        await clearTokens();
+        set({ user: null, accessToken: null });
+        return null;
+      } finally {
+        inFlightRefresh = null;
+      }
+    })();
+
+    return inFlightRefresh;
   },
 }));
+
+// Module-level singleton so all callers (apiClient, caseEvents, cases) share one refresh.
+// Kept out of the Zustand store to avoid serializing a Promise into devtools/persist.
+let inFlightRefresh: Promise<string | null> | null = null;
 
 function normalizeAuthError(error: unknown) {
   if (error instanceof Error) {

@@ -1,4 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
+import { router } from "expo-router";
 import { useAuthStore } from "@/store/useAuthStore";
 
 export interface CaseEvent {
@@ -29,6 +30,7 @@ export interface PresignInput {
   filename: string;
   contentType: string;
   folder: "intake" | "repairs";
+  contentLength: number;
 }
 
 export interface PresignResult {
@@ -85,7 +87,10 @@ async function request<T>(
   }
 
   if (!res.ok) {
-    if (res.status === 401) await useAuthStore.getState().logout();
+    if (res.status === 401) {
+      await useAuthStore.getState().logout();
+      router.replace("/login");
+    }
     throw new Error(
       data?.error || data?.message || "Request failed."
     );
@@ -152,6 +157,16 @@ export function confirmImages(
     `/cases/${encodeURIComponent(caseNumber)}/images/confirm`,
     { method: "POST", body: JSON.stringify({ images }) }
   );
+}
+
+/** Returns the byte size of a local file URI (0 if it cannot be determined). */
+export async function getUploadSize(uri: string): Promise<number> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    return info.exists && typeof info.size === "number" ? info.size : 0;
+  } catch {
+    return 0;
+  }
 }
 
 export async function uploadImageToS3(

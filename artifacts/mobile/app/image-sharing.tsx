@@ -2,10 +2,11 @@ import { Feather } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import * as IntentLauncher from "expo-intent-launcher";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
@@ -21,7 +22,25 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ActionButton } from "@/components/ActionButton";
 import { AppHeader } from "@/components/AppHeader";
 import colors from "@/constants/colors";
+import { useCaseImages } from "@/hooks/useCaseImages";
 import { useIntakeStore } from "@/store/useIntakeStore";
+
+// Download a remote (presigned S3) image to the cache so the OS share intent can read it;
+// local file:// URIs on Android still need a content:// URI for WhatsApp to access them.
+async function toShareableUri(uri: string): Promise<string> {
+  let local = uri;
+  if (uri.startsWith("http")) {
+    const dest = `${FileSystem.cacheDirectory}share_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2)}.jpg`;
+    const dl = await FileSystem.downloadAsync(uri, dest);
+    local = dl.uri;
+  }
+  if (Platform.OS === "android" && local.startsWith("file://")) {
+    return FileSystem.getContentUriAsync(local);
+  }
+  return local;
+}
 
 const { width } = Dimensions.get("window");
 const COLS = 3;
@@ -30,19 +49,48 @@ const CELL_SIZE = (width - 32 - (COLS - 1) * 6) / COLS;
 export default function ImageSharingScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { formData, vehicleNumber } = useIntakeStore();
+  const params = useLocalSearchParams<{ caseNumber?: string; vehicleNumber?: string }>();
+  const caseNumber = params.caseNumber;
+  const isCaseMode = !!caseNumber;
+  const { formData, vehicleNumber: intakeVehicle } = useIntakeStore();
   const [sharing, setSharing] = useState(false);
 
-  const allImages = [
-    ...(formData.primaryImage ? [formData.primaryImage] : []),
-    ...formData.additionalImages
-      .filter((m) => m.type === "image")
-      .map((m) => m.uri),
-  ];
+  // Case mode: pull already-uploaded images (intake + repairs) from the API so a case can
+  // be shared on any visit — not just during the live intake session (MEDIUM-034).
+  const intakeImages = useCaseImages(caseNumber ?? "", "intake");
+  const repairImages = useCaseImages(caseNumber ?? "", "repairs");
+  const isLoading = isCaseMode && (intakeImages.isLoading || repairImages.isLoading);
 
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(allImages),
-  );
+  const { allImages, primaryUris, vehicleNumber } = useMemo(() => {
+    if (isCaseMode) {
+      const remote = [...(intakeImages.data ?? []), ...(repairImages.data ?? [])]
+        .filter((i) => i.mediaType === "image");
+      return {
+        allImages: remote.map((i) => i.url),
+        primaryUris: new Set(remote.filter((i) => i.isPrimary).map((i) => i.url)),
+        vehicleNumber: params.vehicleNumber ?? "",
+      };
+    }
+    return {
+      allImages: [
+        ...(formData.primaryImage ? [formData.primaryImage] : []),
+        ...formData.additionalImages.filter((m) => m.type === "image").map((m) => m.uri),
+      ],
+      primaryUris: new Set(formData.primaryImage ? [formData.primaryImage] : []),
+      vehicleNumber: intakeVehicle,
+    };
+  }, [isCaseMode, intakeImages.data, repairImages.data, formData, intakeVehicle, params.vehicleNumber]);
+
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(allImages));
+
+  // Default to all-selected once images first load (case mode fetches asynchronously).
+  const didInit = useRef(false);
+  useEffect(() => {
+    if (!didInit.current && allImages.length > 0) {
+      didInit.current = true;
+      setSelected(new Set(allImages));
+    }
+  }, [allImages]);
 
   const toggleImage = useCallback((uri: string) => {
     Haptics.selectionAsync();
@@ -80,15 +128,8 @@ export default function ImageSharingScreen() {
 
     try {
       if (Platform.OS === "android") {
-        // Convert any file:// URIs to content:// so WhatsApp can read them
-        const contentUris = await Promise.all(
-          selectedArr.map(async (uri) => {
-            if (uri.startsWith("file://")) {
-              return await FileSystem.getContentUriAsync(uri);
-            }
-            return uri;
-          }),
-        );
+        // Download remote images + convert file:// to content:// so WhatsApp can read them.
+        const contentUris = await Promise.all(selectedArr.map(toShareableUri));
 
         await IntentLauncher.startActivityAsync(
           "android.intent.action.SEND_MULTIPLE",
@@ -99,7 +140,7 @@ export default function ImageSharingScreen() {
           },
         );
       } else {
-        // iOS: share one at a time via system share sheet (WhatsApp supports multi-image in share sheet)
+        // iOS: share via system share sheet (download remote images to a local file first).
         const isAvailable = await Sharing.isAvailableAsync();
         if (!isAvailable) {
           Alert.alert(
@@ -109,7 +150,8 @@ export default function ImageSharingScreen() {
           return;
         }
         for (const uri of selectedArr) {
-          await Sharing.shareAsync(uri, {
+          const local = await toShareableUri(uri);
+          await Sharing.shareAsync(local, {
             mimeType: "image/jpeg",
             UTI: "public.jpeg",
           });
@@ -136,9 +178,9 @@ export default function ImageSharingScreen() {
   const allSelected = allImages.every((uri) => selected.has(uri));
   const noneSelected = selected.size === 0;
 
-  const renderItem = ({ item, index }: { item: string; index: number }) => {
+  const renderItem = ({ item }: { item: string }) => {
     const isSelected = selected.has(item);
-    const isPrimary = index === 0 && !!formData.primaryImage;
+    const isPrimary = primaryUris.has(item);
 
     return (
       <Pressable
@@ -186,21 +228,29 @@ export default function ImageSharingScreen() {
         }
       />
 
-      {allImages.length === 0 ? (
+      {isLoading ? (
+        <View style={styles.empty}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : allImages.length === 0 ? (
         <View style={styles.empty}>
           <View style={styles.emptyIcon}>
             <Feather name="image" size={32} color={colors.textMuted} />
           </View>
-          <Text style={styles.emptyTitle}>No images added</Text>
+          <Text style={styles.emptyTitle}>No images yet</Text>
           <Text style={styles.emptyText}>
-            Add photos in the Intake screen to share them here.
+            {isCaseMode
+              ? "This case has no photos to share yet."
+              : "Add photos in the Intake screen to share them here."}
           </Text>
-          <Pressable
-            onPress={() => router.push("/intake")}
-            style={styles.emptyBtn}
-          >
-            <Text style={styles.emptyBtnText}>Go to Intake</Text>
-          </Pressable>
+          {!isCaseMode && (
+            <Pressable
+              onPress={() => router.push("/intake")}
+              style={styles.emptyBtn}
+            >
+              <Text style={styles.emptyBtnText}>Go to Intake</Text>
+            </Pressable>
+          )}
         </View>
       ) : (
         <>

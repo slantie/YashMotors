@@ -4,7 +4,7 @@ import { useAuthStore } from "@/store/useAuthStore";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
-type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 function buildUrl(path: string) {
   if (!API_BASE_URL) {
@@ -69,5 +69,7 @@ export const apiClient = {
     request<T>("POST", path, body),
   put: <T = unknown>(path: string, body?: unknown) =>
     request<T>("PUT", path, body),
+  patch: <T = unknown>(path: string, body?: unknown) =>
+    request<T>("PATCH", path, body),
   delete: <T = unknown>(path: string) => request<T>("DELETE", path),
 };

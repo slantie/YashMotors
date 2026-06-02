@@ -19,9 +19,26 @@ const AUTH_DIR = path.resolve(process.cwd(), "auth_info_baileys");
 
 let sock: WASocket | null = null;
 let isConnected = false;
+let loggedOut = false;
+let reconnectAttempts = 0;
+
+// Capped exponential backoff so a prolonged outage doesn't hammer reconnects every 5s.
+const RECONNECT_BASE_MS = 5000;
+const RECONNECT_MAX_MS = 60000;
 
 export function isWhatsAppConnected(): boolean {
   return isConnected;
+}
+
+export interface WhatsAppState {
+  connected: boolean;
+  loggedOut: boolean;
+  reconnectAttempts: number;
+}
+
+/** Health/observability snapshot of the WhatsApp link. */
+export function getWhatsAppState(): WhatsAppState {
+  return { connected: isConnected, loggedOut, reconnectAttempts };
 }
 
 export function getSocket(): WASocket {
@@ -55,21 +72,33 @@ export async function initWhatsAppConnection(): Promise<void> {
 
     if (connection === "open") {
       isConnected = true;
+      loggedOut = false;
+      reconnectAttempts = 0;
       console.log("[WhatsApp] Connected ✓");
     }
 
     if (connection === "close") {
       isConnected = false;
       const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      const loggedOut = code === DisconnectReason.loggedOut;
 
-      if (loggedOut) {
-        console.log(
-          "[WhatsApp] Logged out. Delete auth_info_baileys/ and restart to re-scan."
+      if (code === DisconnectReason.loggedOut) {
+        loggedOut = true;
+        // ALERT: requires human action — the business number is offline until re-linked.
+        // Surface this to monitoring (Sentry/uptime) once observability lands (HIGH-005).
+        console.error(
+          "[WhatsApp] ALERT: logged out. Business WhatsApp is OFFLINE. " +
+            "Delete auth_info_baileys/ and restart to re-scan the QR."
         );
       } else {
-        console.log("[WhatsApp] Disconnected, reconnecting in 5s...");
-        setTimeout(initWhatsAppConnection, 5000);
+        const delay = Math.min(
+          RECONNECT_BASE_MS * 2 ** reconnectAttempts,
+          RECONNECT_MAX_MS
+        );
+        reconnectAttempts++;
+        console.log(
+          `[WhatsApp] Disconnected (code=${code ?? "?"}), reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts})...`
+        );
+        setTimeout(initWhatsAppConnection, delay);
       }
     }
   });

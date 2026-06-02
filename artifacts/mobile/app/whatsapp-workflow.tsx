@@ -6,7 +6,6 @@ import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Animated,
   Linking,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { AppHeader } from "@/components/AppHeader";
 import { ADMIN_DISPLAY, ADMIN_NUMBER } from "@/constants/admin";
@@ -267,7 +271,7 @@ export default function WhatsappWorkflowScreen() {
         {/* ── Group name ─────────────────────────────────────── */}
         <View style={styles.card}>
           <SectionLabel dot={colors.primary} label="Generated Group Name" />
-          <TouchableOpacity onPress={copyGroupName} style={styles.groupNameBox} activeOpacity={0.8}>
+          <TouchableOpacity onPress={copyGroupName} style={styles.groupNameBox} activeOpacity={0.8} accessibilityRole="button" accessibilityLabel="Copy group name">
             <Text style={styles.groupName} numberOfLines={2}>{groupName}</Text>
             <Feather
               name={copiedGroup ? "check" : "copy"}
@@ -340,7 +344,7 @@ export default function WhatsappWorkflowScreen() {
         <View style={styles.card}>
           <View style={styles.msgHeaderRow}>
             <SectionLabel dot={colors.textMuted} label="Message Preview" />
-            <TouchableOpacity onPress={copyMessage} style={styles.copyMsgBtn} activeOpacity={0.7}>
+            <TouchableOpacity onPress={copyMessage} style={styles.copyMsgBtn} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Copy intake message">
               <Feather name={copiedMsg ? "check" : "copy"} size={13}
                 color={copiedMsg ? colors.success : colors.textSecondary} />
               <Text style={[styles.copyMsgText, copiedMsg && { color: colors.success }]}>
@@ -354,7 +358,7 @@ export default function WhatsappWorkflowScreen() {
         </View>
 
         {/* ── Next step ───────────────────────────────────────── */}
-        <TouchableOpacity onPress={() => router.push("/image-sharing")} style={styles.nextCard} activeOpacity={0.85}>
+        <TouchableOpacity onPress={() => router.push("/image-sharing")} style={styles.nextCard} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Share vehicle images">
           <View style={styles.nextLeft}>
             <View style={styles.nextIcon}>
               <Feather name="image" size={20} color={colors.primary} />
@@ -523,26 +527,23 @@ function NativeDeeplinkFlow({
   onStep1: () => void;
   onStep2: () => void;
 }) {
-  const progressAnim = useRef(new Animated.Value(0)).current;
+  // Reanimated drives the width on the UI thread (legacy Animated must run width on the JS
+  // thread with useNativeDriver:false, dropping frames on budget devices — MEDIUM-032).
+  const progress = useSharedValue(0);
 
   React.useEffect(() => {
-    Animated.timing(progressAnim, {
-      toValue: step === 0 ? 0 : step === 1 ? 0.5 : 1,
-      duration: 400,
-      useNativeDriver: false,
-    }).start();
+    progress.value = withTiming(step === 0 ? 0 : step === 1 ? 0.5 : 1, { duration: 400 });
   }, [step]);
 
-  const progressWidth = progressAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0%", "100%"],
-  });
+  const progressFillStyle = useAnimatedStyle(() => ({
+    width: `${progress.value * 100}%`,
+  }));
 
   return (
     <View>
       {/* Progress */}
       <View style={gcStyles.progressTrack}>
-        <Animated.View style={[gcStyles.progressFill, { width: progressWidth }]} />
+        <Reanimated.View style={[gcStyles.progressFill, progressFillStyle]} />
       </View>
 
       <StepButton

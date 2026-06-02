@@ -47,7 +47,7 @@ export default function AdvisorHomeScreen() {
   const [search, setSearch] = useState("");
   const isSearching = search.trim().length > 0;
 
-  const casesQuery = useQuery({ queryKey: ["cases"], queryFn: fetchCases });
+  const casesQuery = useQuery({ queryKey: ["cases"], queryFn: () => fetchCases() });
 
   const myCases = useMemo(() => {
     const all = casesQuery.data ?? [];

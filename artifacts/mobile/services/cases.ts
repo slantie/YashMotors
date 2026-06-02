@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useAuthStore } from "@/store/useAuthStore";
 
 export type Role = "superadmin" | "admin" | "advisor" | "technician";
@@ -124,6 +125,7 @@ async function request<T>(path: string, init?: RequestInit, hasRetried = false):
   if (!res.ok) {
     if (res.status === 401) {
       await useAuthStore.getState().logout();
+      router.replace("/login");
     }
     const errBody = data as { error?: string; message?: string } | null;
     throw new Error(errBody?.error || errBody?.message || "Request failed.");
@@ -132,8 +134,26 @@ async function request<T>(path: string, init?: RequestInit, hasRetried = false):
   return data as T;
 }
 
-export function fetchCases(): Promise<CaseListItem[]> {
-  return request<CaseListItem[]>("/cases");
+export interface FetchCasesParams {
+  /** Page size. Omit for the full list (current default behavior). Backend caps at 100. */
+  limit?: number;
+  /** Row offset for offset-based pagination. */
+  offset?: number;
+}
+
+/**
+ * Fetch cases. With no params this returns the full role-scoped list (unchanged).
+ * Pass `limit`/`offset` to page — the backend exposes the total via `X-Total-Count`,
+ * which a future `useInfiniteQuery` can consume.
+ */
+export function fetchCases(params?: FetchCasesParams): Promise<CaseListItem[]> {
+  if (!params || (params.limit === undefined && params.offset === undefined)) {
+    return request<CaseListItem[]>("/cases");
+  }
+  const qs = new URLSearchParams();
+  if (params.limit !== undefined) qs.set("limit", String(params.limit));
+  if (params.offset !== undefined) qs.set("offset", String(params.offset));
+  return request<CaseListItem[]>(`/cases?${qs.toString()}`);
 }
 
 export function fetchTechnicianHistory(): Promise<CaseListItem[]> {

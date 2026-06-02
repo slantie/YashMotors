@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Service names resolve on the compose network; container ports (not host-mapped).
+  - job_name: backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:3001"]
+
+  - job_name: api-server
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api-server:8080"]

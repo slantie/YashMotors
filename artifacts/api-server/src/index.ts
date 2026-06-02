@@ -1,4 +1,5 @@
 import "dotenv/config";
+import "./lib/sentry"; // must be first for instrumentation
 import app from "./app";
 import { logger } from "./lib/logger";
 import { initWhatsAppConnection } from "./lib/whatsapp-connection";

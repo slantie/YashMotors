@@ -9,9 +9,11 @@ export const queueDb = (...results: unknown[][]) => queue.push(...results);
 export const clearDb = () => queue.splice(0);
 const pop = (): unknown[] => (queue.shift() ?? []) as unknown[];
 
-// Chainable Drizzle-like query builder mock.
-// Intermediate methods (from/where/etc) return a fresh chain.
-// Terminal methods resolve from the queue.
+// Chainable Drizzle-like query builder mock. EVERY builder method returns the same
+// thenable chain, so any call order resolves correctly — including modifiers that come
+// after `limit`, e.g. `.where().limit(1).for("update")`. The single terminal is `then`:
+// awaiting the chain pops one queued result. (Previously `limit`/`orderBy`/`returning`
+// returned a Promise, so chaining `.for("update")` after `.limit(1)` threw → spurious 500.)
 function chain(): Record<string, unknown> {
   const c: Record<string, unknown> = {
     from:      () => chain(),
@@ -21,21 +23,35 @@ function chain(): Record<string, unknown> {
     set:       () => chain(),
     values:    () => chain(),
     offset:    () => chain(),
-    orderBy:   () => Promise.resolve(pop()),
-    limit:     () => Promise.resolve(pop()),
-    returning: () => Promise.resolve(pop()),
-    // Thenable — for `await db.select({count}).from(T).where(cond)` without terminal
+    orderBy:   () => chain(),
+    limit:     () => chain(),
+    for:       () => chain(),
+    returning: () => chain(),
+    onConflictDoNothing: () => chain(),
+    onConflictDoUpdate:  () => chain(),
+    // Thenable — awaiting any chain resolves the next queued result.
     then: (resolve: (v: unknown[]) => unknown, reject: (e: unknown) => unknown) =>
       Promise.resolve(pop()).then(resolve, reject),
   };
   return c;
 }
 
+// A transaction client exposes the same chainable builders as the top-level db, so
+// handlers using `db.transaction(async (tx) => { tx.select()... tx.update()... })` consume
+// from the same result queue in call order.
+const txClient = {
+  select: () => chain(),
+  insert: () => chain(),
+  update: () => chain(),
+  delete: () => chain(),
+};
+
 export const mockDb = {
   select: vi.fn(() => chain()),
   insert: vi.fn(() => chain()),
   update: vi.fn(() => chain()),
   delete: vi.fn(() => chain()),
+  transaction: vi.fn(async (cb: (tx: typeof txClient) => unknown) => cb(txClient)),
 };
 
 export const resetDb = () => {
@@ -44,9 +60,11 @@ export const resetDb = () => {
   mockDb.insert.mockClear();
   mockDb.update.mockClear();
   mockDb.delete.mockClear();
+  mockDb.transaction.mockClear();
   // Restore chain factory after clear
   mockDb.select.mockImplementation(() => chain());
   mockDb.insert.mockImplementation(() => chain());
   mockDb.update.mockImplementation(() => chain());
   mockDb.delete.mockImplementation(() => chain());
+  mockDb.transaction.mockImplementation(async (cb: (tx: typeof txClient) => unknown) => cb(txClient));
 };

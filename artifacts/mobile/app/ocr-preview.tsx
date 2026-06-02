@@ -24,9 +24,11 @@ import {
   presignImage,
   confirmImages,
   uploadImageToS3,
+  getUploadSize,
   type ConfirmImageItem,
 } from "@/services/caseEvents";
 import { useIntakeStore, type UploadProgress } from "@/store/useIntakeStore";
+import { useAuthStore } from "@/store/useAuthStore";
 import type { QueryClient } from "@tanstack/react-query";
 
 async function runBackgroundUploads(
@@ -58,10 +60,12 @@ async function runBackgroundUploads(
       ? `primary.${ext}`
       : `${Array.from({ length: 4 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join("")}.${ext}`;
     try {
+      const contentLength = await getUploadSize(uri);
       const presigned = await presignImage(caseNumber, {
         filename,
         contentType,
         folder: "intake",
+        contentLength,
       });
       await uploadImageToS3(presigned.uploadUrl, uri, contentType);
       return {
@@ -90,18 +94,30 @@ async function runBackgroundUploads(
 
   const failedCount = all.length - confirmed.length;
 
+  // Images uploaded to S3 but never confirmed = orphaned objects + missing photos on the
+  // case. Confirm is the cheap, critical step, so retry it with backoff before giving up.
+  let confirmFailed = false;
   if (confirmed.length > 0) {
-    try {
-      await confirmImages(caseNumber, confirmed);
-      queryClient.invalidateQueries({
-        queryKey: ["images", caseNumber, "intake"],
-      });
-    } catch (e) {
-      console.error(`[upload] confirm FAILED`, e);
+    confirmFailed = true;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await confirmImages(caseNumber, confirmed);
+        queryClient.invalidateQueries({
+          queryKey: ["images", caseNumber, "intake"],
+        });
+        confirmFailed = false;
+        break;
+      } catch (e) {
+        if (__DEV__) console.error(`[upload] confirm attempt ${attempt + 1} failed`, e);
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * 2 ** attempt));
+        }
+      }
     }
   }
 
-  const phase: UploadProgress["phase"] = failedCount > 0 ? "failed" : "done";
+  const phase: UploadProgress["phase"] =
+    failedCount > 0 || confirmFailed ? "failed" : "done";
   useIntakeStore
     .getState()
     .setUploadProgress({
@@ -109,7 +125,8 @@ async function runBackgroundUploads(
       done: all.length,
       total: all.length,
       phase,
-      failedCount,
+      // If confirm failed, every uploaded image is effectively unlinked — report them.
+      failedCount: confirmFailed ? failedCount + confirmed.length : failedCount,
     });
 
   if (phase === "done") {
@@ -198,22 +215,22 @@ export default function OcrPreviewScreen() {
             type: "image/jpeg",
             name: "plate.jpg",
           } as any);
+          const token = useAuthStore.getState().accessToken;
           const res = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/ocr`, {
             method: "POST",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
             body: form,
           });
           if (res.ok) {
             const json = await res.json();
-            console.log("[OCR] Raw output:", json.raw);
             extracted = json.plate || "";
             setOcrSource(json.source || null);
-            if (extracted) console.log("[OCR] Matched plate:", extracted);
-            else console.log("[OCR] No plate found. Raw:", json.raw);
-          } else {
+            if (__DEV__) console.log("[OCR] Matched plate:", extracted || "(none)");
+          } else if (__DEV__) {
             console.log("[OCR] Server error:", res.status);
           }
         } catch (e) {
-          console.log("[OCR] Request failed:", e);
+          if (__DEV__) console.log("[OCR] Request failed:", e);
         }
       }
 

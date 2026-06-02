@@ -139,6 +139,8 @@ export default function IntakeScreen() {
                 pressed && { opacity: 0.78 },
               ]}
               hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="View all cases"
             >
               <Feather name="folder" size={20} color={colors.textMuted} />
             </Pressable>
@@ -149,6 +151,8 @@ export default function IntakeScreen() {
                 pressed && { opacity: 0.78 },
               ]}
               hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
             >
               <Feather name="settings" size={20} color={colors.textSecondary} />
             </Pressable>

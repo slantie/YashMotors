@@ -10,6 +10,16 @@ services:
       timeout: 3s
       retries: 5
 
+  # One-shot migration job. Runs to completion once per `up`, BEFORE the backend starts,
+  # so schema changes are applied explicitly rather than on every app boot (HIGH-002).
+  backend-migrate:
+    build:
+      context: .
+      dockerfile: artifacts/backend/Dockerfile
+    restart: "no"
+    env_file: artifacts/backend/.env
+    command: ["node", "./dist/db/migrate.js"]
+
   backend:
     build:
       context: .
@@ -24,6 +34,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      backend-migrate:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:3001:3001"
 
@@ -73,7 +85,39 @@ services:
     ports:
       - "127.0.0.1:3003:3000"
 
+  # ── Observability: Prometheus scrapes /metrics from backend + api-server ──────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - backend
+      - api-server
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "127.0.0.1:3010:3000"
+
 volumes:
   redis_data:
   baileys_auth:
   paddleocr_models:
+  prometheus_data:
+  grafana_data:
